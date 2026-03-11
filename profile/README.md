@@ -2,6 +2,8 @@
 
 promptLM is prompt lifecycle management and test support for agentic applications.
 
+<img width="1024" height="1536" alt="image" src="https://github.com/user-attachments/assets/b0469691-8357-476d-9db9-cd52b78b4e59" />
+
 <!--
 
 **Here are some ideas to get you started:**
