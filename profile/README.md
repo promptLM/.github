@@ -7,6 +7,8 @@ promptLM is an open-source framework for teams that want to treat prompts like p
 
 [Website](https://promptlm.dev) • [Core Framework](https://github.com/promptLM/promptlm-app) • [Client SDKs](https://github.com/promptLM/promptlm-client-sdk) • [All Repositories](https://github.com/orgs/promptLM/repositories)
 
+<img width="320px" src="https://github.com/user-attachments/assets/b0469691-8357-476d-9db9-cd52b78b4e59" alt="promptLM preview" />
+
 ## Status
 
 `Early alpha` — APIs and workflows are evolving quickly. Feedback and contributions are welcome.
