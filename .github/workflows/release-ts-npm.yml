@@ -1,0 +1,142 @@
+name: release-ts-npm
+
+# Org-wide reusable workflow: publish a TypeScript/JS package to npm using
+# Trusted Publishing (OIDC) with build provenance — no NPM_TOKEN, no GPG.
+# Shape mirrors the Java workflow: validate-inputs -> verify -> build -> publish.
+#
+# Caller example:
+#   publish-ts:
+#     uses: promptLM/.github/.github/workflows/release-ts-npm.yml@main
+#     with:
+#       version: ${{ needs.release-please.outputs.version }}
+#       package-name: "@promptlm/client"
+#       package-dir: clients/ts
+#
+# Setup the calling repo must do once on npmjs.com:
+#   Configure a Trusted Publisher for the package matching owner, repo, the
+#   ENTRY workflow filename (the caller's release-*.yml, NOT this reusable
+#   file), and the environment below. Requires npm CLI >= 11.5.1 (installed
+#   below). With trusted publishing, provenance is emitted automatically.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Release version (a leading v is stripped)'
+        required: true
+        type: string
+      dry-run:
+        description: 'Build + npm publish --dry-run only'
+        type: boolean
+        default: false
+      node-version:
+        type: string
+        default: '20'
+      package-name:
+        description: 'npm package name (used for the idempotency check)'
+        required: true
+        type: string
+      package-dir:
+        description: 'Directory containing package.json'
+        type: string
+        default: '.'
+      environment:
+        description: 'Deployment environment gating the publish job'
+        type: string
+        default: npm-publish
+
+concurrency:
+  group: release-ts-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate-inputs:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - name: Resolve version
+        id: resolve
+        run: |
+          V="${{ inputs.version }}"
+          V="${V#v}"
+          [ -n "$V" ] || { echo "::error::No version resolved"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $V"
+      - name: Validate semver
+        run: |
+          V="${{ steps.resolve.outputs.version }}"
+          echo "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' \
+            || { echo "::error::Not a semver version: $V"; exit 1; }
+      - name: Idempotency check (already on npm?)
+        run: |
+          V="${{ steps.resolve.outputs.version }}"
+          if npm view "${{ inputs.package-name }}@$V" version >/dev/null 2>&1; then
+            echo "::error::${{ inputs.package-name }}@$V is already on npm"; exit 1
+          fi
+          echo "Not yet on npm — OK to proceed."
+
+  verify:
+    needs: validate-inputs
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.package-dir }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.package-dir }}/package-lock.json
+      - run: npm ci
+      - run: npx eslint .
+      - run: npx tsc --noEmit
+      - run: npx vitest run
+
+  build:
+    needs: verify
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.package-dir }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.package-dir }}/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ts-package
+          path: ${{ inputs.package-dir }}
+          include-hidden-files: true
+
+  publish:
+    needs: [validate-inputs, build]
+    if: ${{ !inputs.dry-run }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      id-token: write   # OIDC trusted publishing + provenance — no NPM_TOKEN
+    defaults:
+      run:
+        working-directory: ${{ inputs.package-dir }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          registry-url: 'https://registry.npmjs.org'
+      - name: Ensure npm supports trusted publishing
+        run: npm install -g npm@latest   # trusted publishing needs npm >= 11.5.1
+      - run: npm ci
+      - run: npm run build
+      - name: Publish to npm (Trusted Publishing + provenance)
+        run: npm publish --provenance --access public

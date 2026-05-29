@@ -1,0 +1,132 @@
+name: release-python-pypi
+
+# Org-wide reusable workflow: publish a Python package to PyPI using
+# Trusted Publishing (OIDC) — no API token, no GPG. Shape mirrors the Java
+# workflow: validate-inputs -> verify -> build -> publish.
+#
+# Caller example:
+#   publish-python:
+#     uses: promptLM/.github/.github/workflows/release-python-pypi.yml@main
+#     with:
+#       version: ${{ needs.release-please.outputs.version }}
+#       package-name: promptlm-client
+#       package-dir: clients/python
+#     # no `secrets: inherit` needed — OIDC, not tokens
+#
+# Setup the calling repo must do once on PyPI:
+#   Configure a Trusted Publisher (https://pypi.org/manage/.../publishing/)
+#   matching owner, repo, the ENTRY workflow filename (the caller's
+#   release-*.yml, NOT this reusable file), and the environment below.
+#   For a brand-new project, use PyPI's "pending publisher" flow.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Release version (a leading v is stripped)'
+        required: true
+        type: string
+      dry-run:
+        description: 'Build only; do not publish'
+        type: boolean
+        default: false
+      python-version:
+        type: string
+        default: '3.12'
+      package-name:
+        description: 'PyPI project name (used for the idempotency check)'
+        required: true
+        type: string
+      package-dir:
+        description: 'Directory containing pyproject.toml'
+        type: string
+        default: '.'
+      environment:
+        description: 'Deployment environment gating the publish job'
+        type: string
+        default: pypi-publish
+
+concurrency:
+  group: release-python-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate-inputs:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - name: Resolve version
+        id: resolve
+        run: |
+          V="${{ inputs.version }}"
+          V="${V#v}"
+          [ -n "$V" ] || { echo "::error::No version resolved"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $V"
+      - name: Validate version, reject pre-release dev markers
+        run: |
+          V="${{ steps.resolve.outputs.version }}"
+          echo "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([abrc.][0-9A-Za-z.]*)?$' \
+            || { echo "::error::Not a PEP 440 release version: $V"; exit 1; }
+      - name: Idempotency check (already on PyPI?)
+        run: |
+          V="${{ steps.resolve.outputs.version }}"
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+            "https://pypi.org/pypi/${{ inputs.package-name }}/$V/json")
+          if [ "$code" = "200" ]; then
+            echo "::error::${{ inputs.package-name }} $V is already on PyPI"; exit 1
+          fi
+          echo "Not yet on PyPI (HTTP $code) — OK to proceed."
+
+  verify:
+    needs: validate-inputs
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.package-dir }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+      - run: uv sync --all-extras --dev
+      - run: uv run ruff check .
+      - run: uv run mypy .
+      - run: uv run pytest
+
+  build:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+      - name: Build sdist + wheel
+        run: uv build
+        working-directory: ${{ inputs.package-dir }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: ${{ inputs.package-dir }}/dist/
+
+  publish:
+    needs: [validate-inputs, build]
+    if: ${{ !inputs.dry-run }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      id-token: write   # OIDC trusted publishing — no token, no GPG
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist/
+      - name: Publish to PyPI (Trusted Publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        # No `password:` — the action mints an OIDC token and exchanges it.
+        # PEP 740 attestations are generated automatically.

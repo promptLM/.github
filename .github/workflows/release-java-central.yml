@@ -1,0 +1,198 @@
+name: release-java-central
+
+# Org-wide reusable workflow: publish a Maven (multi-module) project to Maven
+# Central via the Sonatype Central Portal. Five-job topology:
+#   validate-inputs -> verify -> smoke-sign -> deploy -> promote
+#
+# Callers (any Java repo) invoke it from their own release-please.yml /
+# dispatcher with `secrets: inherit`, e.g.:
+#
+#   publish:
+#     uses: promptLM/.github/.github/workflows/release-java-central.yml@main
+#     with: { version: ${{ needs.release-please.outputs.tag_name }} }
+#     secrets: inherit
+#
+# Contract the calling repo must satisfy:
+#   - a `release` Maven profile that signs (maven-gpg-plugin) and publishes
+#     (central-publishing-maven-plugin, autoPublish=false, waitUntil=validated)
+#   - server id `central` consumed by the publishing plugin
+#
+# Secrets (inherited from the caller / org):
+#   MAVEN_GPG_PRIVATE_KEY   armored private key
+#   MAVEN_GPG_PASSPHRASE    passphrase for that key
+#   MAVEN_CENTRAL_USERNAME  Central Portal user-token name
+#   MAVEN_CENTRAL_PASSWORD  Central Portal user-token secret
+#
+# The promote (publish) step is gated by the `environment` input, which must
+# exist with required reviewers in the CALLING repo.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Release version (a leading v is stripped)'
+        required: true
+        type: string
+      dry-run:
+        description: 'Build and sign but do not deploy or promote'
+        type: boolean
+        default: false
+      java-version:
+        description: 'Temurin JDK version'
+        type: string
+        default: '21'
+      probe-path:
+        description: >-
+          Optional maven2 path (e.g. dev/promptlm/promptlm-parent) used for the
+          "already published" idempotency check. Empty = skip the check.
+        type: string
+        default: ''
+      environment:
+        description: 'Deployment environment gating the promote job'
+        type: string
+        default: maven-central-publish
+
+concurrency:
+  group: release-java-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate-inputs:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - name: Resolve version
+        id: resolve
+        run: |
+          V="${{ inputs.version }}"
+          V="${V#v}"
+          [ -n "$V" ] || { echo "::error::No version resolved"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $V"
+      - name: Validate semver, reject SNAPSHOT
+        run: |
+          V="${{ steps.resolve.outputs.version }}"
+          echo "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' \
+            || { echo "::error::Not a semver version: $V"; exit 1; }
+          case "$V" in *SNAPSHOT*) echo "::error::Refusing to publish a SNAPSHOT"; exit 1;; esac
+      - name: Idempotency check (already on Central?)
+        run: |
+          V="${{ steps.resolve.outputs.version }}"
+          P="${{ inputs.probe-path }}"
+          if [ -z "$P" ]; then echo "No probe-path provided — skipping idempotency check."; exit 0; fi
+          BASE="${P##*/}"
+          URL="https://repo1.maven.org/maven2/$P/$V/$BASE-$V.pom"
+          if curl -sfI "$URL" >/dev/null 2>&1; then
+            echo "::error::$P:$V is already on Central ($URL)"; exit 1
+          fi
+          echo "Not yet on Central — OK to proceed."
+
+  verify:
+    needs: validate-inputs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ inputs.java-version }}
+          cache: maven
+      - name: Build and test (no signing)
+        run: mvn -B -ntp verify
+
+  smoke-sign:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ inputs.java-version }}
+          gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+      - name: Smoke-test the signing key
+        env:
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        run: |
+          echo "promptlm release smoke test" > smoke.txt
+          gpg --batch --yes --pinentry-mode loopback \
+            --passphrase "$MAVEN_GPG_PASSPHRASE" \
+            --detach-sign --armor smoke.txt
+          gpg --verify smoke.txt.asc smoke.txt
+          echo "GPG signing verified."
+
+  deploy:
+    needs: [validate-inputs, smoke-sign]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    outputs:
+      deployment_id: ${{ steps.mvn-deploy.outputs.deployment_id }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ inputs.java-version }}
+          cache: maven
+          server-id: central
+          server-username: CENTRAL_USERNAME
+          server-password: CENTRAL_PASSWORD
+          gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+      - name: Deploy to Central Portal (upload + validate)
+        id: mvn-deploy
+        if: ${{ !inputs.dry-run }}
+        env:
+          CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        run: |
+          set -o pipefail
+          mvn -B -ntp -Prelease -DskipTests deploy | tee deploy.log
+          # The plugin prints `deploymentId: <uuid>` only to stdout — tee + grep it out.
+          ID=$(grep -oiP 'deploymentId:\s*\K[0-9a-f-]+' deploy.log | head -1)
+          [ -n "$ID" ] || { echo "::error::deploymentId not found in deploy output"; exit 1; }
+          echo "deployment_id=$ID" >> "$GITHUB_OUTPUT"
+          echo "Captured deploymentId: $ID"
+      - name: Dry-run build + sign (no deploy)
+        if: ${{ inputs.dry-run }}
+        env:
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        run: mvn -B -ntp -Prelease -DskipTests verify
+      - name: Attest build provenance
+        if: ${{ !inputs.dry-run && hashFiles('**/target/*.jar') != '' }}
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: '**/target/*.jar'
+
+  promote:
+    needs: [validate-inputs, deploy]
+    if: ${{ !inputs.dry-run }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Promote deployment (irreversible)
+        env:
+          CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          DEPLOYMENT_ID: ${{ needs.deploy.outputs.deployment_id }}
+        run: |
+          [ -n "$DEPLOYMENT_ID" ] || { echo "::error::No deployment_id from deploy job"; exit 1; }
+          AUTH=$(printf '%s:%s' "$CENTRAL_USERNAME" "$CENTRAL_PASSWORD" | base64 | tr -d '\n')
+          echo "Publishing deployment $DEPLOYMENT_ID ..."
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer $AUTH" \
+            "https://central.sonatype.com/api/v1/publisher/deployment/$DEPLOYMENT_ID")
+          echo "Central API responded HTTP $code"
+          case "$code" in
+            2*) echo "Deployment promoted to PUBLISHING/PUBLISHED.";;
+            *)  echo "::error::Promote failed (HTTP $code)"; exit 1;;
+          esac
