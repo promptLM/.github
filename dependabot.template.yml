@@ -1,0 +1,55 @@
+# Org-wide Dependabot template for promptLM repos.
+#
+# Copy the relevant block(s) below into each repo's `.github/dependabot.yml`,
+# keeping only the ecosystems that actually apply. The org policy is:
+#
+#   - weekly cadence (Monday) for everything
+#   - github-actions ecosystem in EVERY repo (CI hygiene)
+#   - language ecosystems only when a manifest exists at `/`
+#   - open-pull-requests-limit: 10 (default) is fine; raise per repo if needed
+#
+# See https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+# for the full surface.
+
+version: 2
+updates:
+
+  # ---------------------------------------------------------------------------
+  # github-actions  --  ALWAYS include in every repo.
+  # Tracks .github/workflows/*.yml action `uses:` pins.
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # ---------------------------------------------------------------------------
+  # maven  --  include for Java repos with pom.xml at the root.
+  # Crawls every pom.xml in the reactor; no per-module entries needed.
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: "maven"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # ---------------------------------------------------------------------------
+  # npm  --  include for repos with package.json at the root.
+  # For multi-workspace repos (e.g. promptlm-app with components/* + apps/*),
+  # add one entry per workspace `directory:` (package-lock.json must exist
+  # at that path) instead of relying on npm workspaces auto-discovery.
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # ---------------------------------------------------------------------------
+  # pip  --  include for Python repos with pyproject.toml / requirements*.txt.
+  # uv-managed projects: pip ecosystem reads pyproject.toml [project.dependencies]
+  # but does NOT update uv.lock — bump uv.lock manually with `uv lock --upgrade`
+  # after a PR merges.
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
