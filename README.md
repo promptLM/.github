@@ -11,7 +11,8 @@ them with `secrets: inherit` (Java) or no secrets (Python/TS use OIDC).
 
 | Workflow | Used by | Purpose |
 |---|---|---|
-| [`release-java-central.yml`](.github/workflows/release-java-central.yml) | every Java repo publishing to Maven Central | five-job topology: validate → verify → smoke-sign → deploy → promote |
+| [`release-java-central.yml`](.github/workflows/release-java-central.yml) | Java repos publishing to Maven Central (`promptlm-platform`, `promptlm-clients`, `promptlm-junit-gitea-artifactory`) | five-job topology: validate → verify → smoke-sign → deploy → promote |
+| [`release-java-ghpackages.yml`](.github/workflows/release-java-ghpackages.yml) | Java repos publishing to GH Packages + a GH Release with native binaries (`promptlm-app`) | six-job topology: validate → verify → native matrix → native-smoke → deploy → release |
 | [`release-python-pypi.yml`](.github/workflows/release-python-pypi.yml) | Python publishers | OIDC trusted-publisher, no token, no GPG |
 | [`release-ts-npm.yml`](.github/workflows/release-ts-npm.yml) | npm publishers | OIDC trusted-publisher + provenance |
 | [`oss-checks.yml`](.github/workflows/oss-checks.yml) | every public repo | gitleaks secret scan + optional license-header check |
