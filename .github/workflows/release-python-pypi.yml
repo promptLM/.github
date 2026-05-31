@@ -109,7 +109,7 @@ jobs:
       - name: Build sdist + wheel
         run: uv build
         working-directory: ${{ inputs.package-dir }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: python-dist
           path: ${{ inputs.package-dir }}/dist/
