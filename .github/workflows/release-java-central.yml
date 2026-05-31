@@ -169,7 +169,7 @@ jobs:
         run: mvn -B -ntp -Prelease -DskipTests verify
       - name: Attest build provenance
         if: ${{ !inputs.dry-run && hashFiles('**/target/*.jar') != '' }}
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: '**/target/*.jar'
 
