@@ -1,0 +1,464 @@
+name: release-java-ghpackages
+
+# Org-wide reusable workflow: publish a Java (multi-module) project to GitHub
+# Packages and a GitHub Release with native-image binaries attached. Sibling
+# to release-java-central.yml but tuned for the platform / app case:
+#   - GitHub Packages (Maven) instead of Maven Central — no GPG, no Sonatype
+#     promote API, no environment gate required.
+#   - GraalVM native-image matrix for the CLI / webapp binaries.
+#   - SHA256SUMS attached alongside the binaries.
+#
+# Callers (e.g. promptlm-app) invoke it from a thin local workflow that
+# computes the version and passes it in:
+#
+#   publish:
+#     uses: promptLM/.github/.github/workflows/release-java-ghpackages.yml@main
+#     with:
+#       version: ${{ needs.calculate_version.outputs.version }}
+#       maven-package-name: dev.promptlm.promptlm-parent
+#       cli-binary: promptlm-cli
+#     secrets: inherit
+#
+# Contract the calling repo must satisfy:
+#   - <distributionManagement> in the parent POM points at this repo's
+#     GitHub Packages registry (id: github), or relies on the default
+#     server-id wiring set by actions/setup-java.
+#   - A `native` Maven profile that produces GraalVM native binaries for
+#     the modules listed in `native-modules`.
+#   - An acceptance-tests reactor (default: ./acceptance-tests) with a
+#     `native-smoke` test group that runs against the produced binaries.
+#
+# Default native matrix covers all 6 GitHub-hosted targets that are free
+# for public repos as of 2026-Q1:
+#   linux/x64, linux/arm64, macos/x64, macos/arm64, windows/x64, windows/arm64
+# Callers can override `native-targets` with a JSON array of
+# {os, platform, arch} objects to scope down.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Release version (no leading v, no -SNAPSHOT)'
+        required: true
+        type: string
+      dry-run:
+        description: 'Build and verify but do not deploy to GH Packages or create a GH Release'
+        type: boolean
+        default: false
+      java-version:
+        description: 'Temurin JDK version for the verify + deploy jobs'
+        type: string
+        default: '21'
+      graalvm-version:
+        description: 'GraalVM Community Edition version for the native matrix'
+        type: string
+        default: '25.0.2'
+      maven-package-name:
+        description: >-
+          Maven package name (groupId.artifactId, dot-separated) used for the
+          GitHub Packages idempotency probe. Set to the root pom's coords —
+          e.g. dev.promptlm.promptlm-parent.
+        type: string
+        required: true
+      native-modules:
+        description: 'Maven module list passed to `-pl` when building natives'
+        type: string
+        default: 'apps/promptlm-cli,apps/promptlm-webapp'
+      cli-binary:
+        description: 'Base name of the produced CLI binary (without .exe)'
+        type: string
+        default: 'promptlm-cli'
+      acceptance-pom:
+        description: 'Path to the acceptance-tests pom.xml'
+        type: string
+        default: 'acceptance-tests/pom.xml'
+      native-targets:
+        description: >-
+          JSON array of {os, platform, arch} entries. Default covers all 6
+          GitHub-hosted runner classes free for public repos. Override to
+          scope down (e.g. drop windows-arm during a runner outage).
+        type: string
+        default: |
+          [
+            {"os": "ubuntu-latest",    "platform": "linux",   "arch": "x64"},
+            {"os": "ubuntu-24.04-arm", "platform": "linux",   "arch": "arm64"},
+            {"os": "macos-13",         "platform": "macos",   "arch": "x64"},
+            {"os": "macos-14",         "platform": "macos",   "arch": "arm64"},
+            {"os": "windows-latest",   "platform": "windows", "arch": "x64"},
+            {"os": "windows-11-arm",   "platform": "windows", "arch": "arm64"}
+          ]
+
+permissions:
+  contents: write   # for the GH Release create
+  packages: write   # for the GH Packages publish
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # 1. validate-inputs
+  # Cheap, fast checks before we spend runner minutes on the build.
+  # ---------------------------------------------------------------------------
+  validate-inputs:
+    name: validate inputs
+    runs-on: ubuntu-latest
+    outputs:
+      already-published: ${{ steps.idempotency.outputs.already_published }}
+    steps:
+      - name: Validate semver
+        run: |
+          v="${{ inputs.version }}"
+          if [[ "$v" =~ -SNAPSHOT$ ]]; then
+            echo "::error::Version must not end with -SNAPSHOT (got: $v)"; exit 1
+          fi
+          if [[ ! "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.+-]+)?$ ]]; then
+            echo "::error::Version is not semver (got: $v)"; exit 1
+          fi
+          echo "version=$v OK"
+
+      - name: Check if version already exists in GitHub Packages
+        id: idempotency
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${{ inputs.version }}"
+          pkg="${{ inputs.maven-package-name }}"
+          org="${{ github.repository_owner }}"
+
+          versions_file="$(mktemp)"; error_file="$(mktemp)"
+          set +e
+          gh api "/orgs/${org}/packages/maven/${pkg}/versions?per_page=100" \
+            --paginate --jq '.[].name' >"$versions_file" 2>"$error_file"
+          api_exit=$?
+          set -e
+
+          if [[ $api_exit -eq 0 ]]; then
+            if grep -Fxq "$version" "$versions_file"; then
+              echo "already_published=true" >> "$GITHUB_OUTPUT"
+              echo "::notice::Version ${version} already in GitHub Packages — deploy will be skipped, GH Release will be (re)created."
+            else
+              echo "already_published=false" >> "$GITHUB_OUTPUT"
+            fi
+          elif grep -Eq "404|Package not found" "$error_file"; then
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Package ${pkg} not yet registered — treating as first publish."
+          else
+            cat "$error_file" >&2; exit "$api_exit"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # 2. verify
+  # Full JVM build + tests + acceptance suite. Same gate that CI runs on PR,
+  # repeated here on the release SHA before any publish.
+  # ---------------------------------------------------------------------------
+  verify:
+    name: verify (JVM + acceptance)
+    needs: validate-inputs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          java-version: ${{ inputs.java-version }}
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: mvn verify
+        run: mvn -B verify
+
+      - name: Install artifacts needed by acceptance-tests
+        run: |
+          mvn -B -DskipTests \
+            -pl ${{ inputs.native-modules }},components/repository-template \
+            -am install
+
+      - name: Run acceptance tests
+        run: mvn -B -f ${{ inputs.acceptance-pom }} -Dpromptlm.bootstrap.skip=true test
+
+      - name: Upload acceptance failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-failures-${{ github.sha }}
+          if-no-files-found: warn
+          path: |
+            acceptance-tests/target/surefire-reports/**
+            acceptance-tests/target/screenshots/**
+            acceptance-tests/target/traces/**
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # 3. build-native (matrix)
+  # GraalVM native-image per target. Produces tar.gz (unix) / zip (windows)
+  # in target/native/ and uploads as the native-<platform>-<arch> artifact.
+  # ---------------------------------------------------------------------------
+  build-native:
+    name: native (${{ matrix.platform }}/${{ matrix.arch }})
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.native-targets) }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: ${{ inputs.graalvm-version }}
+          distribution: 'graalvm-community'
+          components: 'native-image'
+
+      - name: Build native executables
+        run: mvn -B -Pnative -pl ${{ inputs.native-modules }} -am -DskipTests package
+
+      - name: Package native archive (unix)
+        if: matrix.platform != 'windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          work_dir="target/native/${{ matrix.platform }}-${{ matrix.arch }}"
+          cli_binary="apps/${{ inputs.cli-binary }}/target/${{ inputs.cli-binary }}"
+          [[ -x "$cli_binary" ]] || { echo "::error::Missing native binary: $cli_binary"; exit 1; }
+          mkdir -p "$work_dir/${{ inputs.cli-binary }}" target/native
+          cp "$cli_binary" "$work_dir/${{ inputs.cli-binary }}/${{ inputs.cli-binary }}"
+          tar -C "$work_dir" -czf \
+            "target/native/${{ inputs.cli-binary }}-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz" \
+            ${{ inputs.cli-binary }}
+
+      - name: Package native archive (windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $workDir = "target/native/windows-${{ matrix.arch }}"
+          $cliBinary = "apps/${{ inputs.cli-binary }}/target/${{ inputs.cli-binary }}.exe"
+          if (-not (Test-Path $cliBinary)) { throw "Missing native binary: $cliBinary" }
+          New-Item -ItemType Directory -Path "$workDir/${{ inputs.cli-binary }}" -Force | Out-Null
+          Copy-Item $cliBinary "$workDir/${{ inputs.cli-binary }}/${{ inputs.cli-binary }}.exe"
+          Compress-Archive -Path "$workDir/${{ inputs.cli-binary }}/*" `
+            -DestinationPath "target/native/${{ inputs.cli-binary }}-windows-${{ matrix.arch }}.zip" -Force
+
+      - name: Upload native artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.platform }}-${{ matrix.arch }}
+          path: target/native/${{ inputs.cli-binary }}-${{ matrix.platform }}-*
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+
+  # ---------------------------------------------------------------------------
+  # 4. native-smoke
+  # Smoke-test the produced native binary against the acceptance harness's
+  # `native-smoke` group. Runs in parallel with build-native (independent
+  # native build on ubuntu only) — proves the binary is healthy before we
+  # commit to the release.
+  # ---------------------------------------------------------------------------
+  native-smoke:
+    name: native smoke (linux/x64)
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: ${{ inputs.graalvm-version }}
+          distribution: 'graalvm-community'
+          components: 'native-image'
+
+      - name: Build native
+        run: mvn -B -Pnative -pl ${{ inputs.native-modules }} -am -DskipTests package
+
+      - name: Install acceptance dependencies
+        run: |
+          mvn -B -DskipTests \
+            -pl ${{ inputs.native-modules }},components/repository-template \
+            -am install
+
+      - name: Run native-smoke acceptance group
+        run: |
+          mvn -B -f ${{ inputs.acceptance-pom }} \
+            -Dpromptlm.test.groups=native-smoke \
+            -Dpromptlm.test.excludedGroups= \
+            -Dpromptlm.test.cli.native.path=../apps/${{ inputs.cli-binary }}/target/${{ inputs.cli-binary }} \
+            -Dpromptlm.test.webapp.native.path=../apps/promptlm-webapp/target/promptlm-webapp \
+            test
+
+      - name: Upload smoke failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-smoke-failures-${{ github.sha }}
+          if-no-files-found: warn
+          path: |
+            acceptance-tests/target/surefire-reports/**
+            acceptance-tests/target/screenshots/**
+            acceptance-tests/target/traces/**
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # 5. deploy
+  # Set the release version, build, deploy to GitHub Packages, upload jars
+  # as a workflow artifact. Skipped (with a notice) if already_published.
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: deploy (GH Packages)
+    needs: [validate-inputs, verify]
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_ACTOR: ${{ github.actor }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          java-version: ${{ inputs.java-version }}
+          distribution: 'temurin'
+          cache: 'maven'
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
+
+      - name: Set release version
+        run: mvn -B versions:set -DnewVersion=${{ inputs.version }} -DgenerateBackupPoms=false
+
+      - name: Build jars
+        run: mvn -B -DskipTests -pl ${{ inputs.native-modules }} -am package
+
+      - name: Deploy to GitHub Packages
+        if: needs.validate-inputs.outputs.already-published != 'true' && !inputs.dry-run
+        run: mvn -B -DskipTests -DdeployAtEnd=true deploy
+
+      - name: Skip-publish notice
+        if: needs.validate-inputs.outputs.already-published == 'true' || inputs.dry-run
+        run: |
+          if [[ "${{ inputs.dry-run }}" == "true" ]]; then
+            echo "::notice::dry-run=true — skipping mvn deploy."
+          else
+            echo "::notice::Version already in GH Packages — skipping mvn deploy, jars still produced for GH Release."
+          fi
+
+      - name: Upload jars
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-jars
+          path: |
+            apps/**/target/*.jar
+            !apps/**/target/*.jar.original
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+
+  # ---------------------------------------------------------------------------
+  # 6. release
+  # Gather jars + native binaries, generate SHA256SUMS, create the GH Release
+  # at tag v<version> (creates the tag if it doesn't exist).
+  # ---------------------------------------------------------------------------
+  release:
+    name: GH Release v${{ inputs.version }}
+    needs: [deploy, build-native, native-smoke]
+    if: ${{ !inputs.dry-run }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Prep dirs
+        run: mkdir -p target/jars target/native
+
+      - name: Download jars artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: app-jars
+          merge-multiple: true
+          path: target/jars
+
+      - name: Download native artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          merge-multiple: true
+          path: target/native
+
+      - name: Verify native asset shape + generate SHA256SUMS
+        shell: bash
+        run: |
+          set -euo pipefail; shopt -s nullglob
+          # Verify at least one asset per platform exists. Per-arch enforcement
+          # is intentionally relaxed so callers that drop a target via
+          # `native-targets` don't see a release failure.
+          for plat in linux macos windows; do
+            ext='tar.gz'; [[ "$plat" == "windows" ]] && ext='zip'
+            matches=(target/native/${{ inputs.cli-binary }}-${plat}-*.${ext})
+            if [[ ${#matches[@]} -eq 0 ]]; then
+              echo "::error::No ${plat} native asset found (pattern: ${{ inputs.cli-binary }}-${plat}-*.${ext})"; exit 1
+            fi
+          done
+          (cd target/native && sha256sum ${{ inputs.cli-binary }}-* > SHA256SUMS)
+          cat target/native/SHA256SUMS
+
+      - name: Check whether repo has prior tags
+        id: tag-check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          n="$(gh api "/repos/${{ github.repository }}/tags?per_page=1" --jq 'length')"
+          if [[ "$n" -gt 0 ]]; then echo "has_tags=true" >> "$GITHUB_OUTPUT"
+          else echo "has_tags=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Generate changelog
+        if: steps.tag-check.outputs.has_tags == 'true'
+        id: changelog
+        uses: mikepenz/release-changelog-builder-action@v5
+        with:
+          configurationJson: |
+            {
+              "template": "#{{CHANGELOG}}\n\n<details><summary>Uncategorized</summary>\n\n#{{UNCATEGORIZED}}\n</details>",
+              "pr_template": "#{{TITLE}} (##{{NUMBER}})",
+              "categories": [
+                {"title": "## 🚀 Features", "labels": ["enhancement"]},
+                {"title": "## 🐛 Fixes",    "labels": ["bug"]},
+                {"title": "## 💬 Other",    "labels": ["other"]}
+              ]
+            }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GH Release (with changelog)
+        if: steps.tag-check.outputs.has_tags == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}
+          name: v${{ inputs.version }}
+          body: ${{ steps.changelog.outputs.changelog }}
+          files: |
+            target/jars/**/*.jar
+            target/native/*
+
+      - name: Create GH Release (initial)
+        if: steps.tag-check.outputs.has_tags != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}
+          name: v${{ inputs.version }}
+          body: |
+            ## Initial release v${{ inputs.version }}
+
+            First published release in this repository.
+
+            Assets:
+            - JVM app JARs
+            - Native binaries for the configured matrix (`linux`, `macos`, `windows` × `x64`, `arm64`)
+            - SHA256 checksums (`SHA256SUMS`)
+          files: |
+            target/jars/**/*.jar
+            target/native/*
