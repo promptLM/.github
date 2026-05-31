@@ -1,0 +1,11 @@
+# Dependabot version updates — promptLM/.github (org repo)
+#
+# Only github-actions: the reusable workflows here have `uses:` pins that
+# need bumping. No language manifest at the repo root.
+
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

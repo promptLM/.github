@@ -1,0 +1,106 @@
+name: oss-checks
+
+# Org-wide reusable workflow: OSS hygiene gates that every public repo runs
+# on PR + push-to-main. Currently:
+#   - gitleaks (secret scan) via the upstream MIT-licensed CLI
+#   - skywalking-eyes license-eye header check (opt-in via `check-license-headers`)
+#
+# Callers invoke it from a thin local workflow:
+#
+#   # .github/workflows/oss-checks.yml in any consuming repo
+#   name: oss-checks
+#   on:
+#     pull_request: { branches: [main] }
+#     push:         { branches: [main] }
+#   permissions: { contents: read }
+#   jobs:
+#     run:
+#       uses: promptLM/.github/.github/workflows/oss-checks.yml@main
+#       with:
+#         check-license-headers: true   # requires .licenserc.yaml at repo root
+#
+# Contract the calling repo must satisfy:
+#   - `.gitleaks.toml` at repo root extending the default rule set
+#     ([extend] useDefault = true) with project-specific allowlist entries.
+#     Without this file the gitleaks step still runs with the default config
+#     but will be noisier.
+#   - if `check-license-headers: true`, `.licenserc.yaml` at repo root in the
+#     skywalking-eyes format. See the org `.licenserc.template.yaml` for the
+#     Apache-2.0 baseline.
+#
+# Rationale (intentional design choices):
+#   - The official gitleaks/gitleaks-action@v2 requires a commercial
+#     GITLEAKS_LICENSE secret for org repos. We install the CLI directly to
+#     stay on the MIT-licensed binary — same detection engine, no license fee.
+#   - License-header check is opt-in (not always-on) because some repos
+#     (e.g. promptlm-specifications, docs-only) don't carry source files.
+
+on:
+  workflow_call:
+    inputs:
+      gitleaks-version:
+        description: 'gitleaks CLI version (no leading v)'
+        type: string
+        default: '8.21.2'
+      check-license-headers:
+        description: 'Run skywalking-eyes license-eye header check'
+        type: boolean
+        default: false
+      license-eye-version:
+        description: 'skywalking-eyes Docker tag'
+        type: string
+        default: '0.6.0'
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    # continue-on-error is intentionally OMITTED on the reusable. Repos that
+    # need a soft-fail can wrap the caller with `continue-on-error: true`.
+    env:
+      GITLEAKS_VERSION: ${{ inputs.gitleaks-version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        run: |
+          curl -sSfL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+          sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: Run gitleaks
+        run: |
+          if [ -f .gitleaks.toml ]; then
+            CONFIG_ARG="--config .gitleaks.toml"
+          else
+            echo "::warning::No .gitleaks.toml at repo root — running with default rules only."
+            CONFIG_ARG=""
+          fi
+          gitleaks detect \
+            $CONFIG_ARG \
+            --no-banner \
+            --redact \
+            --verbose \
+            --exit-code 1
+
+  license-headers:
+    name: License headers (license-eye)
+    if: ${{ inputs.check-license-headers }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check license headers
+        uses: apache/skywalking-eyes/header@v0.6.0
+        with:
+          config: .licenserc.yaml
+          mode: check
