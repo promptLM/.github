@@ -9,3 +9,10 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    ignore:
+      # D-66 (research/maven-central/log.md): the Java release reusable is
+      # slated to migrate from actions/attest-build-provenance to
+      # actions/attest directly, per the upstream README's recommendation
+      # for new implementations. Suppress version-bump noise on the wrapper
+      # until the migration lands.
+      - dependency-name: "actions/attest-build-provenance"
