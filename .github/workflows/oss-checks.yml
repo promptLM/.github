@@ -64,7 +64,7 @@ jobs:
       GITLEAKS_VERSION: ${{ inputs.gitleaks-version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
         with:
           fetch-depth: 0
 
@@ -97,10 +97,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
 
       - name: Check license headers
-        uses: apache/skywalking-eyes/header@v0.8.0
+        uses: apache/skywalking-eyes/header@61275cc80d0798a405cb070f7d3a8aaf7cf2c2c1  # v0.8.0
         with:
           config: .licenserc.yaml
           mode: check
