@@ -1,0 +1,92 @@
+name: Auto-merge dependency PR
+description: |
+  Enable GitHub auto-merge on the calling pull request if it passes
+  the safety filters: recognised bot author, no `do-not-merge` /
+  `blocked` / `breaking-change` label, not a major-version bump
+  (unless `include-major: 'true'`). Honours the calling repo's
+  branch-protection rules — does NOT bypass required checks or
+  approvals; the actual merge waits for them.
+
+  Intended trigger in the caller:
+
+      on:
+        pull_request_target:
+          types: [opened, synchronize, reopened, ready_for_review,
+                  labeled, unlabeled]
+
+  Using `pull_request_target` is what gives the workflow access to a
+  token that can enable auto-merge. The action never checks out PR
+  code, so the usual `pull_request_target` security risk does not
+  apply here.
+author: promptLM
+
+inputs:
+  method:
+    description: "Merge method: merge | squash | rebase."
+    required: false
+    default: squash
+  include-major:
+    description: "Allow major-version bumps."
+    required: false
+    default: 'false'
+  allowed-actors:
+    description: "Comma-separated bot logins permitted to auto-merge."
+    required: false
+    default: 'dependabot[bot],renovate[bot],github-actions[bot]'
+  blocking-labels:
+    description: "Comma-separated labels that, if any is present on the PR, abort auto-merge."
+    required: false
+    default: 'do-not-merge,blocked,breaking-change'
+
+runs:
+  using: composite
+  steps:
+    - name: Decide and enable auto-merge
+      shell: bash
+      env:
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        PR_TITLE: ${{ github.event.pull_request.title }}
+        PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        PR_LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
+        PR_DRAFT: ${{ github.event.pull_request.draft }}
+        METHOD: ${{ inputs.method }}
+        INCLUDE_MAJOR: ${{ inputs.include-major }}
+        ALLOWED_ACTORS: ${{ inputs.allowed-actors }}
+        BLOCKING_LABELS: ${{ inputs.blocking-labels }}
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+      run: |
+        set -uo pipefail
+        if [ "$PR_DRAFT" = "true" ]; then
+          echo "skip: draft PR"; exit 0
+        fi
+        ok=0
+        IFS=',' read -ra actors <<< "$ALLOWED_ACTORS"
+        for a in "${actors[@]}"; do
+          [ "$a" = "$PR_AUTHOR" ] && ok=1
+        done
+        if [ "$ok" -ne 1 ]; then
+          echo "skip: author '$PR_AUTHOR' not in allow-list ($ALLOWED_ACTORS)"
+          exit 0
+        fi
+        labels=$(echo "$PR_LABELS" | jq -r '.[]' 2>/dev/null | tr '\n' ',')
+        IFS=',' read -ra blockers <<< "$BLOCKING_LABELS"
+        for b in "${blockers[@]}"; do
+          if echo ",$labels" | grep -q ",$b,"; then
+            echo "skip: PR has blocking label '$b'"; exit 0
+          fi
+        done
+        if [ "$INCLUDE_MAJOR" != "true" ]; then
+          from=$(echo "$PR_TITLE" | sed -nE 's/.*from ([0-9]+)(\.[0-9]+){0,2}.*/\1/p')
+          to=$(echo "$PR_TITLE"   | sed -nE 's/.* to ([0-9]+)(\.[0-9]+){0,2}.*/\1/p')
+          if [ -n "$from" ] && [ -n "$to" ] && [ "$from" != "$to" ]; then
+            echo "skip: major bump ($from → $to) per title \"$PR_TITLE\""
+            exit 0
+          fi
+          to_v=$(echo "$PR_TITLE" | sed -nE 's/.* to v?([0-9]+).*/\1/p')
+          if [ -n "$to_v" ] && [ "$to_v" != "1" ] && [[ "$PR_TITLE" =~ [Mm]ajor ]]; then
+            echo "skip: title flagged major (\"$PR_TITLE\")"; exit 0
+          fi
+        fi
+        gh pr merge "$PR_NUMBER" -R "$REPO" "--$METHOD" --auto --delete-branch
+        echo "auto-merge enabled on #$PR_NUMBER ($METHOD); GitHub will merge once required checks pass"
