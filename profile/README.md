@@ -36,6 +36,14 @@ When prompts power real features, ad-hoc copy/paste is not enough. You need:
 | [`promptlm-junit-gitea-artifactory`](https://github.com/promptLM/promptlm-junit-gitea-artifactory) | JUnit 5 + Testcontainers support for Gitea and Artifactory integration tests |
 
 
+## How it fits together
+
+How the public repos relate, and how a prompt flows from an author into your application.
+
+![promptLM modules](./modules-overview.svg)
+
+![promptLM prompt lifecycle](./prompt-lifecycle.svg)
+
 ## Quick start
 
 ### Install `promptlm-cli` (macOS/Linux)
