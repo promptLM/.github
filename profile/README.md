@@ -1,13 +1,10 @@
+<img width="1920" height="1080" alt="promptlm-animation-stay" src="https://github.com/user-attachments/assets/3ba45560-2b32-4db5-abb0-04159c309418" />
 
-# promptLM
-
-**Prompt Lifecycle Management for agentic applications**
+# Prompt Lifecycle Management for agentic applications
 
 promptLM is an open-source framework for teams that want to treat prompts like production assets: design, evaluate, version, release, and consume prompts with confidence.
 
 [Website](https://promptlm.dev) • [Core Framework](https://github.com/promptLM/promptlm-app) • [Client SDKs](https://github.com/promptLM/promptlm-client-sdk) • [All Repositories](https://github.com/orgs/promptLM/repositories)
-
-<img width="320px" src="https://github.com/user-attachments/assets/b0469691-8357-476d-9db9-cd52b78b4e59" alt="promptLM preview" />
 
 ## Status
 
