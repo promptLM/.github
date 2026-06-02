@@ -1,0 +1,71 @@
+name: Pin GitHub Actions refs to SHAs
+description: |
+  Rewrite every unpinned `uses: owner/repo@<ref>` in the calling repo's
+  workflows to `uses: owner/repo@<40-char-sha> # <ref>`, preserving the
+  original ref as a trailing comment so Dependabot's `github-actions`
+  ecosystem can still recognise the action for future bumps. Designed
+  to run from a `workflow_dispatch` workflow that then opens a PR
+  (e.g. via `peter-evans/create-pull-request`).
+author: promptLM
+
+inputs:
+  workflows-path:
+    description: "Directory containing workflow YAMLs."
+    required: false
+    default: '.github/workflows'
+
+outputs:
+  changed:
+    description: "Number of `uses:` references rewritten."
+    value: ${{ steps.pin.outputs.changed }}
+
+runs:
+  using: composite
+  steps:
+    - name: Rewrite refs
+      id: pin
+      shell: bash
+      env:
+        WORKFLOWS_PATH: ${{ inputs.workflows-path }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -uo pipefail
+        if [ ! -d "$WORKFLOWS_PATH" ]; then
+          echo "no workflows directory at $WORKFLOWS_PATH — nothing to pin"
+          echo "changed=0" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        resolve_sha() {
+          gh api "repos/$1/commits/$2" --jq '.sha' 2>/dev/null
+        }
+        changed=0
+        while IFS= read -r file; do
+          tmp=$(mktemp)
+          while IFS= read -r line; do
+            # Allow both `uses:` (under a `name:` step) and `- uses:` (bare YAML list item).
+            ref=$(echo "$line" | sed -E "s/^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]*[\"']?([^\"' #]+)[\"']?.*$/\2/")
+            if [ "$ref" = "$line" ] \
+               || [[ "$ref" =~ ^\./ ]] \
+               || [[ "$ref" =~ ^docker:// ]] \
+               || [[ "$ref" =~ ^promptLM/\.github/ ]]; then
+              echo "$line" >> "$tmp"; continue
+            fi
+            action="${ref%@*}"
+            version="${ref#*@}"
+            if [ "$action" = "$version" ] || [[ "$version" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "$line" >> "$tmp"; continue
+            fi
+            sha=$(resolve_sha "$action" "$version")
+            if [ -z "$sha" ] || [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::warning file=$file::Could not resolve $action@$version — leaving as-is"
+              echo "$line" >> "$tmp"; continue
+            fi
+            new=$(echo "$line" | sed -E "s|(uses:[[:space:]]*[\"']?)$action@$version([\"']?)|\1$action@$sha\2 # $version|")
+            echo "$new" >> "$tmp"
+            echo "pinned: $file: $action@$version → @${sha:0:10}…"
+            changed=$((changed + 1))
+          done < "$file"
+          mv "$tmp" "$file"
+        done < <(find "$WORKFLOWS_PATH" -type f \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null)
+        echo "changed=$changed" >> "$GITHUB_OUTPUT"
+        echo "Total references rewritten: $changed"

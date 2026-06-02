@@ -1,0 +1,66 @@
+name: Audit GitHub Actions pin hygiene
+description: |
+  Fail the job if any `uses:` reference in the calling repo's workflows
+  is not pinned to a 40-char commit SHA. Skips local refs (`./...`),
+  docker action refs, and (by default) same-org reusable workflows
+  under `promptLM/.github/` since those are managed at source.
+author: promptLM
+
+inputs:
+  allow-org-reusable:
+    description: "Skip same-org reusable workflow refs (promptLM/.github/...)."
+    required: false
+    default: 'true'
+  workflows-path:
+    description: "Directory containing workflow YAMLs."
+    required: false
+    default: '.github/workflows'
+
+runs:
+  using: composite
+  steps:
+    - name: Audit uses refs
+      shell: bash
+      env:
+        ALLOW_ORG_REUSABLE: ${{ inputs.allow-org-reusable }}
+        WORKFLOWS_PATH: ${{ inputs.workflows-path }}
+      run: |
+        set -uo pipefail
+        total=0
+        {
+          echo "## Action pin audit"
+          echo
+          echo "| Workflow | Action | Ref | Verdict |"
+          echo "|---|---|---|---|"
+        } >> "$GITHUB_STEP_SUMMARY"
+        if [ ! -d "$WORKFLOWS_PATH" ]; then
+          echo "no workflows directory at $WORKFLOWS_PATH — nothing to audit"
+          exit 0
+        fi
+        while IFS= read -r file; do
+          while IFS= read -r line; do
+            # Allow both `uses:` (under a `name:` step) and `- uses:` (bare YAML list item).
+            ref=$(echo "$line" | sed -E "s/^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]*[\"']?([^\"' #]+)[\"']?.*$/\2/")
+            [ "$ref" = "$line" ] && continue
+            [[ "$ref" =~ ^\./ ]] && continue
+            [[ "$ref" =~ ^docker:// ]] && continue
+            action="${ref%@*}"
+            version="${ref#*@}"
+            [ "$action" = "$version" ] && continue
+            if [ "$ALLOW_ORG_REUSABLE" = "true" ] && [[ "$action" =~ ^promptLM/\.github/ ]]; then
+              continue
+            fi
+            if [[ "$version" =~ ^[0-9a-f]{40}$ ]]; then
+              continue
+            fi
+            printf '| %s | %s | `%s` | UNPINNED |\n' \
+              "${file#"$WORKFLOWS_PATH"/}" "$action" "$version" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error file=$file::Unpinned action ref: $action@$version (pin to a 40-char commit SHA)"
+            total=$((total + 1))
+          done < <(grep -E '^[[:space:]]*(-[[:space:]]+)?uses:' "$file" | grep -v '^[[:space:]]*#')
+        done < <(find "$WORKFLOWS_PATH" -type f \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null)
+        {
+          echo
+          echo "Total unpinned references: $total"
+        } >> "$GITHUB_STEP_SUMMARY"
+        exit "$total"
