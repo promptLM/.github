@@ -4,6 +4,16 @@ Org-wide GitHub assets for the [promptLM](https://github.com/promptLM)
 organization: reusable workflows, org-default community files
 (`profile/README.md`), and config templates referenced by every other repo.
 
+## Project at a glance
+
+**Modules and repositories** — what each public repo produces and how they depend on each other.
+
+![promptLM modules](./profile/modules-overview.svg)
+
+**Prompt lifecycle** — how a prompt gets from an author into a running app.
+
+![promptLM prompt lifecycle](./profile/prompt-lifecycle.svg)
+
 ## Reusable workflows
 
 Live at `promptLM/.github/.github/workflows/<name>.yml@main`. Callers `uses:`

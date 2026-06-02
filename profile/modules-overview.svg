@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" font-family="Inter, system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <style>
+      .title       { font-size: 28px; font-weight: 700; fill: #0f172a; }
+      .subtitle    { font-size: 14px; fill: #475569; }
+      .section     { font-size: 16px; font-weight: 700; fill: #0f172a; letter-spacing: 0.5px; }
+      .repo        { font-size: 15px; font-weight: 700; fill: #0f172a; }
+      .role        { font-size: 12px; fill: #334155; }
+      .channel     { font-size: 11px; font-weight: 600; fill: #1e40af; }
+      .legend-text { font-size: 12px; fill: #475569; }
+      .arrow-label { font-size: 11px; fill: #64748b; font-style: italic; }
+      .footer      { font-size: 11px; fill: #94a3b8; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1280" height="720" fill="#f8fafc"/>
+
+  <!-- Header -->
+  <text x="40" y="50" class="title">promptLM — modules &amp; repositories</text>
+  <text x="40" y="74" class="subtitle">What each public repo produces, who consumes it, and where it ships.</text>
+
+  <!-- Legend -->
+  <g transform="translate(880, 30)">
+    <rect x="0" y="0" width="360" height="56" rx="8" fill="#ffffff" stroke="#e2e8f0"/>
+    <rect x="14" y="14" width="14" height="14" rx="3" fill="#dbeafe" stroke="#1d4ed8"/>
+    <text x="34" y="25" class="legend-text">Artifact-producing</text>
+    <rect x="14" y="34" width="14" height="14" rx="3" fill="#ecfdf5" stroke="#047857"/>
+    <text x="34" y="45" class="legend-text">Coordination / org-level</text>
+    <line x1="200" y1="22" x2="220" y2="22" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <text x="226" y="25" class="legend-text">depends on / consumes</text>
+  </g>
+
+  <!-- ===================== ARTIFACT-PRODUCING ===================== -->
+  <text x="40" y="118" class="section">ARTIFACT-PRODUCING</text>
+  <line x1="40" y1="126" x2="1240" y2="126" stroke="#e2e8f0"/>
+
+  <g transform="translate(40, 142)">
+    <rect width="280" height="120" rx="10" fill="#dbeafe" stroke="#1d4ed8" stroke-width="1.5"/>
+    <text x="16" y="26" class="repo">promptlm-platform</text>
+    <text x="16" y="48" class="role">Maven parent POM + BOM.</text>
+    <text x="16" y="64" class="role">Pins versions for the entire</text>
+    <text x="16" y="80" class="role">promptLM dependency surface.</text>
+    <text x="16" y="106" class="channel">→ Maven Central</text>
+  </g>
+
+  <g transform="translate(345, 142)">
+    <rect width="280" height="120" rx="10" fill="#dbeafe" stroke="#1d4ed8" stroke-width="1.5"/>
+    <text x="16" y="26" class="repo">promptlm-app</text>
+    <text x="16" y="48" class="role">The framework itself —</text>
+    <text x="16" y="64" class="role">CLI (fat jar + native binaries)</text>
+    <text x="16" y="80" class="role">and Studio web app.</text>
+    <text x="16" y="106" class="channel">→ GitHub Packages + Release</text>
+  </g>
+
+  <g transform="translate(650, 142)">
+    <rect width="280" height="120" rx="10" fill="#dbeafe" stroke="#1d4ed8" stroke-width="1.5"/>
+    <text x="16" y="26" class="repo">promptlm-clients</text>
+    <text x="16" y="48" class="role">Client SDKs to talk to a</text>
+    <text x="16" y="64" class="role">promptLM server —</text>
+    <text x="16" y="80" class="role">Java, Python, TypeScript.</text>
+    <text x="16" y="106" class="channel">→ Maven Central · PyPI · npm</text>
+  </g>
+
+  <g transform="translate(955, 142)">
+    <rect width="285" height="120" rx="10" fill="#dbeafe" stroke="#1d4ed8" stroke-width="1.5"/>
+    <text x="16" y="26" class="repo">promptlm-macos</text>
+    <text x="16" y="48" class="role">Native macOS menubar client.</text>
+    <text x="16" y="64" class="role">Lightweight desktop entry point</text>
+    <text x="16" y="80" class="role">to a running promptLM server.</text>
+    <text x="16" y="106" class="channel">→ GitHub Release (binary)</text>
+  </g>
+
+  <g transform="translate(40, 282)">
+    <rect width="595" height="110" rx="10" fill="#dbeafe" stroke="#1d4ed8" stroke-width="1.5"/>
+    <text x="16" y="26" class="repo">promptlm-junit-gitea-artifactory</text>
+    <text x="16" y="48" class="role">JUnit 5 Testcontainers extension for Gitea + Artifactory.</text>
+    <text x="16" y="64" class="role">Lets promptlm-app's integration tests spin up real backends.</text>
+    <text x="16" y="96" class="channel">→ GitHub Packages (Maven)</text>
+  </g>
+
+  <g transform="translate(655, 282)">
+    <rect width="585" height="110" rx="10" fill="#dbeafe" stroke="#1d4ed8" stroke-width="1.5"/>
+    <text x="16" y="26" class="repo">promptlm-test-support-ts</text>
+    <text x="16" y="48" class="role">TypeScript test-support: record/replay HTTP cassettes</text>
+    <text x="16" y="64" class="role">for deterministic SDK tests.</text>
+    <text x="16" y="96" class="channel">→ npm</text>
+  </g>
+
+  <!-- ===================== COORDINATION & ORG ===================== -->
+  <text x="40" y="436" class="section">COORDINATION &amp; ORG</text>
+  <line x1="40" y1="444" x2="1240" y2="444" stroke="#e2e8f0"/>
+
+  <g transform="translate(40, 460)">
+    <rect width="1200" height="100" rx="10" fill="#ecfdf5" stroke="#047857" stroke-width="1.5"/>
+    <text x="16" y="26" class="repo">.github</text>
+    <text x="16" y="48" class="role">Org profile + community defaults +</text>
+    <text x="16" y="64" class="role">three reusable release workflows every artifact-producing repo calls:</text>
+    <text x="16" y="86" class="role" font-style="italic">release-java-central.yml · release-python-pypi.yml · release-ts-npm.yml</text>
+  </g>
+
+  <!-- ===================== DEPENDENCY GRAPH ===================== -->
+  <text x="40" y="600" class="section">HOW THEY CONNECT</text>
+  <line x1="40" y1="608" x2="1240" y2="608" stroke="#e2e8f0"/>
+
+  <g transform="translate(40, 624)">
+    <rect width="1200" height="76" rx="10" fill="#ffffff" stroke="#e2e8f0"/>
+
+    <rect x="20" y="22" width="160" height="32" rx="6" fill="#dbeafe" stroke="#1d4ed8"/>
+    <text x="100" y="42" text-anchor="middle" class="repo">promptlm-platform</text>
+
+    <rect x="300" y="22" width="160" height="32" rx="6" fill="#dbeafe" stroke="#1d4ed8"/>
+    <text x="380" y="42" text-anchor="middle" class="repo">promptlm-app</text>
+
+    <rect x="580" y="2" width="240" height="32" rx="6" fill="#dbeafe" stroke="#1d4ed8"/>
+    <text x="700" y="22" text-anchor="middle" class="repo">promptlm-junit-gitea-artifactory</text>
+
+    <rect x="580" y="44" width="160" height="32" rx="6" fill="#dbeafe" stroke="#1d4ed8"/>
+    <text x="660" y="64" text-anchor="middle" class="repo">promptlm-clients</text>
+
+    <line x1="180" y1="38" x2="298" y2="38" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <text x="239" y="32" text-anchor="middle" class="arrow-label">inherits POM</text>
+
+    <path d="M 180 38 Q 360 92 580 60" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+    <text x="380" y="82" text-anchor="middle" class="arrow-label">parent via ${revision}</text>
+
+    <line x1="460" y1="34" x2="578" y2="18" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <text x="519" y="10" text-anchor="middle" class="arrow-label">test scope</text>
+
+    <text x="1090" y="42" text-anchor="middle" class="arrow-label" font-style="normal" fill="#1e40af">github.com/promptLM</text>
+  </g>
+
+  <text x="40" y="712" class="footer">Project walk page · See each repo's README for full details.</text>
+</svg>
