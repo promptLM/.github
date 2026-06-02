@@ -42,7 +42,8 @@ runs:
         while IFS= read -r file; do
           tmp=$(mktemp)
           while IFS= read -r line; do
-            ref=$(echo "$line" | sed -E "s/^[[:space:]]*uses:[[:space:]]*[\"']?([^\"' #]+)[\"']?.*$/\1/")
+            # Allow both `uses:` (under a `name:` step) and `- uses:` (bare YAML list item).
+            ref=$(echo "$line" | sed -E "s/^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]*[\"']?([^\"' #]+)[\"']?.*$/\2/")
             if [ "$ref" = "$line" ] \
                || [[ "$ref" =~ ^\./ ]] \
                || [[ "$ref" =~ ^docker:// ]] \
