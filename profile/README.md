@@ -44,6 +44,12 @@ $script = irm https://raw.githubusercontent.com/promptLM/promptlm-app/main/scrip
 & ([scriptblock]::Create($script))
 ```
 
+### Verify
+
+```bash
+promptlm-cli --version
+```
+
 ### Start `promptLM Studio` (macOS/Linux)
 
 ```bash
@@ -64,11 +70,6 @@ $script = irm https://raw.githubusercontent.com/promptLM/promptlm-app/main/scrip
 ![promptLM modules](./modules-overview.svg)
 
 
-### Verify
-
-```bash
-promptlm-cli --version
-```
 
 ## Contributing
 
