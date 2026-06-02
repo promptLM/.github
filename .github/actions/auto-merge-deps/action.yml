@@ -18,6 +18,10 @@ description: |
   token that can enable auto-merge. The action never checks out PR
   code, so the usual `pull_request_target` security risk does not
   apply here.
+
+  PR fields default to the `github.event.pull_request.*` payload but
+  can be overridden via inputs — that override surface is what powers
+  the in-PR test workflow that exercises every decision branch.
 author: promptLM
 
 inputs:
@@ -37,28 +41,67 @@ inputs:
     description: "Comma-separated labels that, if any is present on the PR, abort auto-merge."
     required: false
     default: 'do-not-merge,blocked,breaking-change'
+  dry-run:
+    description: "If 'true', emit the decision via the `decision` output and skip the actual `gh pr merge` call. Used by the test workflow."
+    required: false
+    default: 'false'
+  pr-number:
+    description: "Override for github.event.pull_request.number (test seam)."
+    required: false
+    default: ''
+  pr-title:
+    description: "Override for github.event.pull_request.title (test seam)."
+    required: false
+    default: ''
+  pr-author:
+    description: "Override for github.event.pull_request.user.login (test seam)."
+    required: false
+    default: ''
+  pr-labels-json:
+    description: "Override for github.event.pull_request.labels (JSON array of label names; test seam)."
+    required: false
+    default: ''
+  pr-draft:
+    description: "Override for github.event.pull_request.draft (test seam)."
+    required: false
+    default: ''
+
+outputs:
+  decision:
+    description: |
+      Outcome of the filter chain. One of:
+        proceed:merge-queued, proceed:dry-run,
+        skip:draft, skip:author, skip:label:<name>,
+        skip:major, skip:merge-failed
+    value: ${{ steps.decide.outputs.decision }}
 
 runs:
   using: composite
   steps:
     - name: Decide and enable auto-merge
+      id: decide
       shell: bash
       env:
-        PR_NUMBER: ${{ github.event.pull_request.number }}
-        PR_TITLE: ${{ github.event.pull_request.title }}
-        PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-        PR_LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
-        PR_DRAFT: ${{ github.event.pull_request.draft }}
+        PR_NUMBER: ${{ inputs.pr-number != '' && inputs.pr-number || github.event.pull_request.number }}
+        PR_TITLE: ${{ inputs.pr-title != '' && inputs.pr-title || github.event.pull_request.title }}
+        PR_AUTHOR: ${{ inputs.pr-author != '' && inputs.pr-author || github.event.pull_request.user.login }}
+        PR_LABELS: ${{ inputs.pr-labels-json != '' && inputs.pr-labels-json || toJson(github.event.pull_request.labels.*.name) }}
+        PR_DRAFT: ${{ inputs.pr-draft != '' && inputs.pr-draft || github.event.pull_request.draft }}
         METHOD: ${{ inputs.method }}
         INCLUDE_MAJOR: ${{ inputs.include-major }}
         ALLOWED_ACTORS: ${{ inputs.allowed-actors }}
         BLOCKING_LABELS: ${{ inputs.blocking-labels }}
+        DRY_RUN: ${{ inputs.dry-run }}
         GH_TOKEN: ${{ github.token }}
         REPO: ${{ github.repository }}
       run: |
         set -uo pipefail
+        emit() {
+          echo "decision=$1" >> "$GITHUB_OUTPUT"
+          echo "decision: $1"
+        }
         if [ "$PR_DRAFT" = "true" ]; then
-          echo "skip: draft PR"; exit 0
+          emit "skip:draft"; exit 0
         fi
         ok=0
         IFS=',' read -ra actors <<< "$ALLOWED_ACTORS"
@@ -66,27 +109,36 @@ runs:
           [ "$a" = "$PR_AUTHOR" ] && ok=1
         done
         if [ "$ok" -ne 1 ]; then
-          echo "skip: author '$PR_AUTHOR' not in allow-list ($ALLOWED_ACTORS)"
-          exit 0
+          echo "author '$PR_AUTHOR' not in allow-list ($ALLOWED_ACTORS)"
+          emit "skip:author"; exit 0
         fi
         labels=$(echo "$PR_LABELS" | jq -r '.[]' 2>/dev/null | tr '\n' ',')
         IFS=',' read -ra blockers <<< "$BLOCKING_LABELS"
         for b in "${blockers[@]}"; do
           if echo ",$labels" | grep -q ",$b,"; then
-            echo "skip: PR has blocking label '$b'"; exit 0
+            emit "skip:label:$b"; exit 0
           fi
         done
         if [ "$INCLUDE_MAJOR" != "true" ]; then
           from=$(echo "$PR_TITLE" | sed -nE 's/.*from ([0-9]+)(\.[0-9]+){0,2}.*/\1/p')
           to=$(echo "$PR_TITLE"   | sed -nE 's/.* to ([0-9]+)(\.[0-9]+){0,2}.*/\1/p')
           if [ -n "$from" ] && [ -n "$to" ] && [ "$from" != "$to" ]; then
-            echo "skip: major bump ($from → $to) per title \"$PR_TITLE\""
-            exit 0
+            echo "major bump ($from → $to) per title \"$PR_TITLE\""
+            emit "skip:major"; exit 0
           fi
           to_v=$(echo "$PR_TITLE" | sed -nE 's/.* to v?([0-9]+).*/\1/p')
           if [ -n "$to_v" ] && [ "$to_v" != "1" ] && [[ "$PR_TITLE" =~ [Mm]ajor ]]; then
-            echo "skip: title flagged major (\"$PR_TITLE\")"; exit 0
+            echo "title flagged major (\"$PR_TITLE\")"
+            emit "skip:major"; exit 0
           fi
         fi
-        gh pr merge "$PR_NUMBER" -R "$REPO" "--$METHOD" --auto --delete-branch
-        echo "auto-merge enabled on #$PR_NUMBER ($METHOD); GitHub will merge once required checks pass"
+        if [ "$DRY_RUN" = "true" ]; then
+          emit "proceed:dry-run"; exit 0
+        fi
+        if gh pr merge "$PR_NUMBER" -R "$REPO" "--$METHOD" --auto --delete-branch; then
+          emit "proceed:merge-queued"
+          echo "auto-merge enabled on #$PR_NUMBER ($METHOD); GitHub will merge once required checks pass"
+        else
+          emit "skip:merge-failed"
+          exit 1
+        fi

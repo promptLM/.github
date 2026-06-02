@@ -1,0 +1,15 @@
+# Fixture: a mix of unpinned tag refs and one already-pinned SHA.
+# Used by .github/workflows/test.yml to assert:
+#   - audit-action-pins exits non-zero (flags the two tag refs)
+#   - pin-action-shas rewrites the two tag refs and leaves the SHA alone
+#   - re-running pin-action-shas is a no-op (changed=0)
+name: CI (fixture, unpinned)
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+      - uses: actions/cache@704facf57e6136b1bc63b828d79edcd491f0ee84 # v3.3.2 — already pinned
+      - run: npm test
