@@ -6,6 +6,8 @@ promptLM is an open-source framework for teams that want to treat prompts like p
 
 [Website](https://promptlm.dev) • [Core Framework](https://github.com/promptLM/promptlm-app) • [Client SDKs](https://github.com/promptLM/promptlm-client-sdk) • [All Repositories](https://github.com/orgs/promptLM/repositories)
 
+![promptLM prompt lifecycle](./prompt-lifecycle.svg)
+
 ## Status
 
 `Early alpha` — APIs and workflows are evolving quickly. Feedback and contributions are welcome.
@@ -27,23 +29,6 @@ When prompts power real features, ad-hoc copy/paste is not enough. You need:
 - CLI, web app, and API workflows
 - SDK support for consuming released prompts in applications
 
-## Featured repositories
-
-| Repository | Purpose |
-| --- | --- |
-| [`promptlm-app`](https://github.com/promptLM/promptlm-app) | Core framework, CLI, web app, and lifecycle workflows |
-| [`promptlm-client-sdk`](https://github.com/promptLM/promptlm-client-sdk) | Java, TypeScript, and Python SDK workspace |
-| [`promptlm-junit-gitea-artifactory`](https://github.com/promptLM/promptlm-junit-gitea-artifactory) | JUnit 5 + Testcontainers support for Gitea and Artifactory integration tests |
-
-
-## How it fits together
-
-How the public repos relate, and how a prompt flows from an author into your application.
-
-![promptLM modules](./modules-overview.svg)
-
-![promptLM prompt lifecycle](./prompt-lifecycle.svg)
-
 ## Quick start
 
 ### Install `promptlm-cli` (macOS/Linux)
@@ -58,6 +43,26 @@ curl -fsSL https://raw.githubusercontent.com/promptLM/promptlm-app/main/scripts/
 $script = irm https://raw.githubusercontent.com/promptLM/promptlm-app/main/scripts/install.ps1
 & ([scriptblock]::Create($script))
 ```
+
+### Start `promptLM Studio` (macOS/Linux)
+
+```bash
+> promptlm-cli studio
+```
+
+<img width="1477" height="791" alt="Screenshot 2026-06-02 at 17 54 32" src="https://github.com/user-attachments/assets/ebeb4db0-82ba-44cd-8d10-3ed4bd410fbb" />
+
+
+## Featured repositories
+
+| Repository | Purpose |
+| --- | --- |
+| [`promptlm-app`](https://github.com/promptLM/promptlm-app) | Core framework, CLI, web app, and lifecycle workflows |
+| [`promptlm-client-sdk`](https://github.com/promptLM/promptlm-client-sdk) | Java, TypeScript, and Python SDK workspace |
+| [`promptlm-junit-gitea-artifactory`](https://github.com/promptLM/promptlm-junit-gitea-artifactory) | JUnit 5 + Testcontainers support for Gitea and Artifactory integration tests |
+
+![promptLM modules](./modules-overview.svg)
+
 
 ### Verify
 
