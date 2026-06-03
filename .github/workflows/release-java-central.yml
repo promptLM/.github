@@ -113,8 +113,24 @@ jobs:
         with:
           distribution: temurin
           java-version: ${{ inputs.java-version }}
-          gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
-          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+      - name: Import GPG signing key
+        env:
+          MAVEN_GPG_PRIVATE_KEY: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MAVEN_GPG_PRIVATE_KEY:-}" ]; then
+            echo "::error::MAVEN_GPG_PRIVATE_KEY is empty"; exit 1
+          fi
+          if ! printf '%s\n' "$MAVEN_GPG_PRIVATE_KEY" | head -n1 | grep -q 'BEGIN PGP PRIVATE KEY BLOCK'; then
+            echo "::error::MAVEN_GPG_PRIVATE_KEY does not look ASCII-armored"; exit 1
+          fi
+          mkdir -p ~/.gnupg
+          chmod 700 ~/.gnupg
+          printf 'pinentry-mode loopback\n' >> ~/.gnupg/gpg.conf
+          printf 'allow-loopback-pinentry\n' >> ~/.gnupg/gpg-agent.conf
+          printf '%s\n' "$MAVEN_GPG_PRIVATE_KEY" | gpg --batch --yes --pinentry-mode loopback --import
+          gpg --batch --list-secret-keys --with-colons \
+            | awk -F: '$1=="fpr" {print "Imported key: "$10; exit}'
       - name: Smoke-test the signing key
         env:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
@@ -145,8 +161,22 @@ jobs:
           server-id: central
           server-username: CENTRAL_USERNAME
           server-password: CENTRAL_PASSWORD
-          gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
-          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+      - name: Import GPG signing key
+        env:
+          MAVEN_GPG_PRIVATE_KEY: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MAVEN_GPG_PRIVATE_KEY:-}" ]; then
+            echo "::error::MAVEN_GPG_PRIVATE_KEY is empty"; exit 1
+          fi
+          if ! printf '%s\n' "$MAVEN_GPG_PRIVATE_KEY" | head -n1 | grep -q 'BEGIN PGP PRIVATE KEY BLOCK'; then
+            echo "::error::MAVEN_GPG_PRIVATE_KEY does not look ASCII-armored"; exit 1
+          fi
+          mkdir -p ~/.gnupg
+          chmod 700 ~/.gnupg
+          printf 'pinentry-mode loopback\n' >> ~/.gnupg/gpg.conf
+          printf 'allow-loopback-pinentry\n' >> ~/.gnupg/gpg-agent.conf
+          printf '%s\n' "$MAVEN_GPG_PRIVATE_KEY" | gpg --batch --yes --pinentry-mode loopback --import
       - name: Deploy to Central Portal (upload + validate)
         id: mvn-deploy
         if: ${{ !inputs.dry-run }}
@@ -156,7 +186,7 @@ jobs:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
         run: |
           set -o pipefail
-          mvn -B -ntp -Prelease -DskipTests deploy | tee deploy.log
+          mvn -B -ntp -Prelease -DskipTests -Dgpg.passphrase="$MAVEN_GPG_PASSPHRASE" deploy | tee deploy.log
           # The plugin prints `deploymentId: <uuid>` only to stdout — tee + grep it out.
           ID=$(grep -oiP 'deploymentId:\s*\K[0-9a-f-]+' deploy.log | head -1)
           [ -n "$ID" ] || { echo "::error::deploymentId not found in deploy output"; exit 1; }
@@ -166,7 +196,7 @@ jobs:
         if: ${{ inputs.dry-run }}
         env:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
-        run: mvn -B -ntp -Prelease -DskipTests verify
+        run: mvn -B -ntp -Prelease -DskipTests -Dgpg.passphrase="$MAVEN_GPG_PASSPHRASE" verify
       - name: Attest build provenance
         if: ${{ !inputs.dry-run && hashFiles('**/target/*.jar') != '' }}
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
