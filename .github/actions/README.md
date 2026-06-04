@@ -105,10 +105,38 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: promptLM/.github/.github/actions/auto-merge-deps@<sha>
+        with:
+          required-checks: |
+            oss-checks / run
         # with:
         #   method: squash         # merge | squash | rebase
         #   include-major: 'true'  # default 'false'
 ```
+
+### Gating on a build check (`required-checks`)
+
+Branch protection is the primary gate, but it's enforced *out of band* —
+a repo that forgets to mark its build job as required will silently
+auto-merge broken dependency PRs. `required-checks` is a defense-in-depth
+gate inside the action itself: a newline- or comma-separated list of
+check-run names that must already have completed with `conclusion=success`
+on the PR head SHA before `gh pr merge --auto` is called. If any listed
+check is missing, still pending, or failing, the action exits cleanly
+with `decision=skip:check:{missing,pending,failed}` and a log line
+naming the offending check. Leaving the input empty preserves prior
+behaviour (no extra gate).
+
+```yaml
+      - uses: promptLM/.github/.github/actions/auto-merge-deps@<sha>
+        with:
+          required-checks: |
+            oss-checks / run
+            build
+```
+
+The name(s) must match the check-run `name` GitHub records — for a
+reusable workflow that's typically `<job-id> / <matrix-or-job-name>`,
+e.g. `oss-checks / run`.
 
 ### Why `pull_request_target`, not `pull_request`?
 
