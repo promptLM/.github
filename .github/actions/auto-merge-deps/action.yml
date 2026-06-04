@@ -41,6 +41,15 @@ inputs:
     description: "Comma-separated labels that, if any is present on the PR, abort auto-merge."
     required: false
     default: 'do-not-merge,blocked,breaking-change'
+  required-checks:
+    description: |
+      Optional list of check-run names that must have already completed with
+      `conclusion=success` on the PR head SHA before auto-merge is enabled.
+      Newline- or comma-separated. Whitespace around each name is trimmed.
+      Empty (the default) disables the gate and preserves prior behaviour —
+      enforcement relies solely on the caller repo's branch protection.
+    required: false
+    default: ''
   dry-run:
     description: "If 'true', emit the decision via the `decision` output and skip the actual `gh pr merge` call. Used by the test workflow."
     required: false
@@ -65,6 +74,17 @@ inputs:
     description: "Override for github.event.pull_request.draft (test seam)."
     required: false
     default: ''
+  pr-head-sha:
+    description: "Override for github.event.pull_request.head.sha (test seam)."
+    required: false
+    default: ''
+  checks-json:
+    description: |
+      Test seam: when set, this JSON array of `{name, status, conclusion}`
+      objects is consulted instead of the live Checks API. Used by the test
+      workflow to exercise every branch of the required-checks gate.
+    required: false
+    default: ''
 
 outputs:
   decision:
@@ -72,7 +92,9 @@ outputs:
       Outcome of the filter chain. One of:
         proceed:merge-queued, proceed:dry-run,
         skip:draft, skip:author, skip:label:<name>,
-        skip:major, skip:merge-failed
+        skip:major,
+        skip:check:missing, skip:check:pending, skip:check:failed,
+        skip:merge-failed
     value: ${{ steps.decide.outputs.decision }}
 
 runs:
@@ -87,10 +109,13 @@ runs:
         PR_AUTHOR: ${{ inputs.pr-author != '' && inputs.pr-author || github.event.pull_request.user.login }}
         PR_LABELS: ${{ inputs.pr-labels-json != '' && inputs.pr-labels-json || toJson(github.event.pull_request.labels.*.name) }}
         PR_DRAFT: ${{ inputs.pr-draft != '' && inputs.pr-draft || github.event.pull_request.draft }}
+        PR_HEAD_SHA: ${{ inputs.pr-head-sha != '' && inputs.pr-head-sha || github.event.pull_request.head.sha }}
         METHOD: ${{ inputs.method }}
         INCLUDE_MAJOR: ${{ inputs.include-major }}
         ALLOWED_ACTORS: ${{ inputs.allowed-actors }}
         BLOCKING_LABELS: ${{ inputs.blocking-labels }}
+        REQUIRED_CHECKS: ${{ inputs.required-checks }}
+        CHECKS_JSON: ${{ inputs.checks-json }}
         DRY_RUN: ${{ inputs.dry-run }}
         GH_TOKEN: ${{ github.token }}
         REPO: ${{ github.repository }}
@@ -131,6 +156,39 @@ runs:
             echo "title flagged major (\"$PR_TITLE\")"
             emit "skip:major"; exit 0
           fi
+        fi
+        if [ -n "$REQUIRED_CHECKS" ]; then
+          normalized=$(printf '%s\n' "$REQUIRED_CHECKS" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^$' || true)
+          if [ -n "$CHECKS_JSON" ]; then
+            checks="$CHECKS_JSON"
+          else
+            if [ -z "$PR_HEAD_SHA" ]; then
+              echo "required-checks set but no PR head SHA available; cannot verify"
+              emit "skip:check:missing"; exit 0
+            fi
+            if ! checks=$(gh api "repos/$REPO/commits/$PR_HEAD_SHA/check-runs?per_page=100" --paginate --jq '[.check_runs[] | {name, status, conclusion}]' 2>&1 | jq -s 'add // []'); then
+              echo "failed to fetch check-runs for $PR_HEAD_SHA"
+              emit "skip:check:missing"; exit 0
+            fi
+          fi
+          while IFS= read -r needed; do
+            [ -z "$needed" ] && continue
+            match=$(echo "$checks" | jq -c --arg n "$needed" '[.[] | select(.name == $n)] | last // empty')
+            if [ -z "$match" ]; then
+              echo "required check '$needed' is missing on $PR_HEAD_SHA"
+              emit "skip:check:missing"; exit 0
+            fi
+            status=$(echo "$match" | jq -r '.status')
+            conclusion=$(echo "$match" | jq -r '.conclusion')
+            if [ "$status" != "completed" ]; then
+              echo "required check '$needed' is not completed (status=$status, conclusion=$conclusion)"
+              emit "skip:check:pending"; exit 0
+            fi
+            if [ "$conclusion" != "success" ]; then
+              echo "required check '$needed' did not succeed (conclusion=$conclusion)"
+              emit "skip:check:failed"; exit 0
+            fi
+          done <<< "$normalized"
         fi
         if [ "$DRY_RUN" = "true" ]; then
           emit "proceed:dry-run"; exit 0
