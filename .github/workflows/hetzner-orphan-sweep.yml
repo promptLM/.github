@@ -1,0 +1,60 @@
+# Daily orphan sweep. Catches Hetzner Cloud VMs left running by crashed or
+# cancelled workflow runs that bypassed the teardown job in hetzner-runner.yml.
+#
+# IDENTIFICATION: Cyclenerd's Action does NOT set Hetzner Cloud server labels.
+# Its default server-name pattern is `gh-runner-[RANDOM]`. The sweep filters
+# by that name prefix. If a project ever overrides Cyclenerd's `name:` input,
+# keep the `gh-runner-` prefix or extend the jq filter below.
+#
+# Required secrets (org-level, scoped to this repo):
+#   - HCLOUD_TOKEN   Hetzner Cloud API token (Read & Write)
+
+name: Hetzner orphan sweep
+
+on:
+  schedule:
+    - cron: "0 6 * * *"          # 06:00 UTC daily
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+      MAX_AGE_HOURS: 6
+    steps:
+      - name: Install hcloud CLI
+        run: |
+          curl -fsSL "https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz" \
+            | tar -xz -C /usr/local/bin hcloud
+          hcloud version
+
+      - name: Identify and delete orphan runner VMs
+        run: |
+          set -euo pipefail
+          NOW_EPOCH=$(date -u +%s)
+          MAX_AGE_SEC=$((MAX_AGE_HOURS * 3600))
+
+          hcloud server list -o json \
+            | jq -r '.[] | select(.name | startswith("gh-runner-")) | [.id, .name, .created] | @tsv' \
+          | while IFS=$'\t' read -r ID NAME CREATED; do
+              CREATED_EPOCH=$(date -u -d "$CREATED" +%s)
+              AGE_SEC=$((NOW_EPOCH - CREATED_EPOCH))
+              AGE_HRS=$((AGE_SEC / 3600))
+              if [ "$AGE_SEC" -gt "$MAX_AGE_SEC" ]; then
+                echo "ORPHAN: $NAME (id=$ID, age=${AGE_HRS}h) — deleting"
+                hcloud server delete "$ID"
+              else
+                echo "ok:     $NAME (id=$ID, age=${AGE_HRS}h)"
+              fi
+            done
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "Remaining gh-runner-* servers after sweep:"
+          hcloud server list -o json | jq -r '.[] | select(.name | startswith("gh-runner-")) | .name'

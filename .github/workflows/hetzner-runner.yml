@@ -1,0 +1,130 @@
+# Reusable workflow: provision a Hetzner Cloud VM, run a command on it as a
+# self-hosted GitHub Actions runner, and tear it down. Called by downstream
+# project repositories via `uses:` from their own workflows.
+#
+# This is the user-facing entry point of the Hetzner runner platform. The
+# bake and orphan-sweep workflows in this same directory keep the supporting
+# pieces fresh and clean.
+#
+# Why this exists:
+#   - Long-running jobs (acceptance tests, integration suites) on
+#     ubuntu-latest add up fast at $0.008/min.
+#   - A 30-min job on Hetzner CPX31 costs ~€0.04 vs ~€0.22 on GitHub-hosted
+#     (~82% saving per run).
+#   - The break-even point is ~3-4 min — shorter jobs should stay on
+#     ubuntu-latest.
+#
+# Required org-level secrets (set under
+#   https://github.com/organizations/promptLM/settings/secrets/actions):
+#   - HCLOUD_TOKEN   Hetzner Cloud API token (Read & Write)
+#   - RUNNER_PAT     Fine-grained GitHub PAT with "Administration: Read and
+#                    write" on the calling repo
+#
+# Required org-level variable (set under
+#   https://github.com/organizations/promptLM/settings/variables/actions):
+#   - HETZNER_RUNNER_SNAPSHOT_ID   Numeric ID of the latest baked snapshot;
+#                                  updated nightly by hetzner-snapshot-bake.yml
+#
+# Cyclenerd Action source: https://github.com/Cyclenerd/hcloud-github-runner
+
+name: Hetzner runner (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      test-command:
+        description: "Shell command(s) to execute in the acceptance job."
+        required: true
+        type: string
+      server-type:
+        description: "Hetzner Cloud server type. Whitelist: cpx11/21/31/41, cax21/31."
+        required: false
+        type: string
+        default: cpx31
+      location:
+        description: "Hetzner Cloud region (fra1, nbg1, hel1, ash, hil, sin)."
+        required: false
+        type: string
+        default: fra1
+      timeout-minutes:
+        description: "Wall-clock timeout for the acceptance job."
+        required: false
+        type: number
+        default: 60
+      checkout-ref:
+        description: "Git ref to checkout in the acceptance job. Default: the caller's GITHUB_SHA."
+        required: false
+        type: string
+        default: ""
+    secrets:
+      HCLOUD_TOKEN:
+        required: true
+      RUNNER_PAT:
+        required: true
+
+# Cancel any in-flight Hetzner run on the same ref of the same caller repo to
+# avoid orphan VMs piling up during rapid pushes.
+concurrency:
+  group: hetzner-runner-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      label: ${{ steps.runner.outputs.label }}
+      server_id: ${{ steps.runner.outputs.server_id }}
+    steps:
+      - id: runner
+        uses: Cyclenerd/hcloud-github-runner@2904b0bc60c7b3b19331bd4d48dc87c58ad2d04f # v1 (v1.4.0)
+        with:
+          mode: create
+          github_token: ${{ secrets.RUNNER_PAT }}
+          hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
+          server_type: ${{ inputs.server-type }}
+          location: ${{ inputs.location }}
+          image: ${{ vars.HETZNER_RUNNER_SNAPSHOT_ID || 'ubuntu-24.04' }}
+          # Fallback path: if the snapshot variable isn't set yet (first deploy),
+          # the runner boots a raw ubuntu-24.04 and installs the baseline at
+          # boot. Slow (~3-5 min) but correct. Snapshot bake removes this branch.
+          pre_runner_script: |
+            if ! command -v docker >/dev/null 2>&1; then
+              curl -fsSL https://get.docker.com | sh
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update
+              apt-get install -y \
+                openjdk-17-jdk-headless openjdk-21-jdk-headless \
+                maven git curl wget jq unzip make ca-certificates
+              curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+              apt-get install -y nodejs
+              npm install -g pnpm yarn
+            fi
+
+  acceptance:
+    needs: provision
+    runs-on: ${{ needs.provision.outputs.label }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.checkout-ref }}
+      - name: Run acceptance command
+        shell: bash
+        run: ${{ inputs.test-command }}
+
+  teardown:
+    needs: [provision, acceptance]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: Cyclenerd/hcloud-github-runner@2904b0bc60c7b3b19331bd4d48dc87c58ad2d04f # v1 (v1.4.0)
+        with:
+          mode: delete
+          github_token: ${{ secrets.RUNNER_PAT }}
+          hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
+          server_id: ${{ needs.provision.outputs.server_id }}
