@@ -92,10 +92,10 @@ Per 30-minute acceptance test run:
 | Item | Cost |
 |---|---|
 | Provision job on ubuntu-latest (~1 min) | ~$0.008 |
-| Hetzner CPX31 VM (1 hour billed, rounded up) | ~€0.025 |
+| Hetzner CX33 VM (1 hour billed, rounded up) | ~€0.009 |
 | Teardown job on ubuntu-latest (~30s → 1 min minimum) | ~$0.008 |
 | Primary IPv4 prorated | ~€0.001 |
-| **Total per run** | **~€0.04** |
+| **Total per run** | **~€0.024** |
 
 vs running the same job on ubuntu-latest directly:
 
@@ -103,19 +103,24 @@ vs running the same job on ubuntu-latest directly:
 |---|---|
 | 30 min × $0.008/min | **~€0.22** |
 
-**Saving: ~82% per run.** At 100 runs/day per workflow that's ~€6.5K/year
+**Saving: ~89% per run.** At 100 runs/day per workflow that's ~€7.2K/year
 saved per workflow.
 
 ## Server-type sizing
 
-The reusable workflow defaults to **CPX31** (4 vCPU AMD EPYC / 8 GB RAM /
-160 GB NVMe). Override per call:
+The reusable workflow defaults to **CX33** (4 vCPU AMD EPYC / 8 GB RAM /
+80 GB NVMe / ~€6.49/mo cap, ~€0.009/h). The CX line is the current
+generation; it's ~3× cheaper than the older CPX line at matched RAM/CPU
+because Hetzner repriced the new generation in April 2026.
 
-- **Lighter** workflows: `server-type: cpx21` (3 vCPU / 4 GB) or even `cpx11` (2/2 GB)
-- **Heavier** workflows: `server-type: cpx41` (8 vCPU / 16 GB)
-- **ARM** workflows (~40% cheaper but Docker images must be arm64-clean):
+Override per call:
+
+- **Lighter** workflows: `server-type: cx22` (2 vCPU / 4 GB) for builds/lint
+- **Heavier** workflows: `server-type: cx42` (8 vCPU / 16 GB) or `cx52` (16 vCPU / 32 GB)
+- **Older CPX line** still works if a workflow needs the bigger SSD: `cpx31` (160 GB), `cpx41` (240 GB)
+- **ARM** workflows (~half the price but Docker images must be arm64-clean):
   `server-type: cax21` or `cax31`. Confluent Platform images (`cp-kafka`,
-  etc.) are amd64-only and will NOT work on ARM; stick to CPX for those.
+  etc.) are amd64-only and will NOT work on ARM; stick to CX for those.
 
 ## What's baked into the snapshot
 
@@ -138,7 +143,7 @@ add if needed) OR install them as the first step of the acceptance job.
 **A workflow run leaves a Hetzner VM behind.** The daily orphan sweep
 (`hetzner-orphan-sweep.yml`) catches anything older than 6 hours with a name
 matching `gh-runner-*`. To force a sweep, run that workflow manually from the
-Actions tab. Worst-case orphan cost is ~€0.60 (24 hours of CPX31).
+Actions tab. Worst-case orphan cost is ~€0.60 (24 hours of CX33).
 
 **The provision job hangs.** Hetzner API outages or transient SSH boot
 failures are the usual cause. The Cyclenerd Action retries internally

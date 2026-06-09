@@ -9,9 +9,9 @@
 # Why this exists:
 #   - Long-running jobs (acceptance tests, integration suites) on
 #     ubuntu-latest add up fast at $0.008/min.
-#   - A 30-min job on Hetzner CPX31 costs ~€0.04 vs ~€0.22 on GitHub-hosted
-#     (~82% saving per run).
-#   - The break-even point is ~3-4 min — shorter jobs should stay on
+#   - A 30-min job on Hetzner CX33 (4 vCPU / 8 GB / 80 GB / ~€6.49/mo cap)
+#     costs ~€0.024 vs ~€0.22 on GitHub-hosted (~89% saving per run).
+#   - The break-even point is ~1-2 min — shorter jobs should stay on
 #     ubuntu-latest.
 #
 # Required org-level secrets (set under
@@ -37,10 +37,10 @@ on:
         required: true
         type: string
       server-type:
-        description: "Hetzner Cloud server type. Whitelist: cpx11/21/31/41, cax21/31."
+        description: "Hetzner Cloud server type. Whitelist: cx22/32/33/42/52, cpx11/21/31/41, cax21/31."
         required: false
         type: string
-        default: cpx31
+        default: cx33
       location:
         description: "Hetzner Cloud region (fsn1, nbg1, hel1, ash, hil, sin)."
         required: false
