@@ -25,10 +25,30 @@ them with `secrets: inherit` (Java) or no secrets (Python/TS use OIDC).
 | [`release-python-pypi.yml`](.github/workflows/release-python-pypi.yml) | Python publishers | OIDC trusted-publisher, no token, no GPG |
 | [`release-ts-npm.yml`](.github/workflows/release-ts-npm.yml) | npm publishers | OIDC trusted-publisher + provenance |
 | [`oss-checks.yml`](.github/workflows/oss-checks.yml) | every public repo | gitleaks secret scan + optional license-header check |
+| [`hetzner-runner.yml`](.github/workflows/hetzner-runner.yml) | repos with long-running tests (acceptance, integration suites) | provision → run → teardown on a Hetzner Cloud VM; ~80% cheaper than `ubuntu-latest` for jobs > 3 min |
 
 Design rationale and the full release-train topology live in
 [`promptLM/promptlm-release`](https://github.com/promptLM/promptlm-release)
 under `docs/ci-workflow-design.md`.
+
+### Hetzner runner platform
+
+Alternative to `ubuntu-latest` for long-running CI jobs. Reusable workflow
+`hetzner-runner.yml` plus a nightly snapshot bake and daily orphan sweep —
+all hosted here. Downstream usage:
+
+```yaml
+jobs:
+  acceptance:
+    uses: promptLM/.github/.github/workflows/hetzner-runner.yml@main
+    with:
+      test-command: ./scripts/acceptance-tests.sh
+    secrets: inherit
+```
+
+Full setup, cost math, sizing guidance, and troubleshooting:
+[`docs/hetzner-runners.md`](docs/hetzner-runners.md). For new workflows,
+pick the **"Hetzner acceptance tests"** template under Actions → New workflow.
 
 ## Templates (copy-paste references)
 

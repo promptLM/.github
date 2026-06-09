@@ -1,0 +1,15 @@
+{
+  "name": "Hetzner acceptance tests",
+  "description": "Run long-running tests on Hetzner Cloud (CPX31 default) instead of GitHub-hosted Linux. ~80% cheaper per run for jobs 3+ min long. Uses the promptLM/.github reusable runner workflow.",
+  "iconName": "octicon container",
+  "categories": [
+    "Continuous integration",
+    "Testing"
+  ],
+  "filePatterns": [
+    "pom.xml$",
+    "build.gradle$",
+    "build.gradle.kts$",
+    "package.json$"
+  ]
+}

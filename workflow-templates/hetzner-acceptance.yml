@@ -1,0 +1,26 @@
+# Run long-running tests on Hetzner Cloud instead of GitHub-hosted Linux.
+# Per-run cost is ~80% cheaper than ubuntu-latest for jobs 3+ min long.
+#
+# Customize the test-command, server-type, and timeout-minutes below.
+# Required org-level secrets HCLOUD_TOKEN and RUNNER_PAT should already be
+# set; see https://github.com/promptLM/.github#hetzner-runners.
+
+name: Acceptance tests (Hetzner)
+
+on:
+  push:
+    branches: [$default-branch]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    uses: promptLM/.github/.github/workflows/hetzner-runner.yml@main
+    with:
+      # The shell command to execute on the Hetzner runner.
+      test-command: ./scripts/acceptance-tests.sh
+      # Optional overrides — defaults are sensible for most projects.
+      # server-type: cpx31    # whitelist: cpx11/21/31/41, cax21/31
+      # location: fra1
+      # timeout-minutes: 60
+    secrets: inherit
