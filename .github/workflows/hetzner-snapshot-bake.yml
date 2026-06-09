@@ -8,9 +8,11 @@
 #
 # Required secrets (org-level, scoped to this repo):
 #   - HCLOUD_TOKEN          Hetzner Cloud API token (Read & Write)
-#   - GH_ORG_VAR_TOKEN      Fine-grained GitHub PAT with "Organization
-#                           variables: Read and write" — used to update the
-#                           org variable HETZNER_RUNNER_SNAPSHOT_ID.
+#   - GH_ORG_VAR_TOKEN      Fine-grained GitHub PAT with Organization
+#                           permissions → "Variables" → Read and write
+#                           (the resource owner is the promptLM org).
+#                           Used to update org variable
+#                           HETZNER_RUNNER_SNAPSHOT_ID after each bake.
 
 name: Hetzner snapshot bake
 

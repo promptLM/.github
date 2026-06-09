@@ -69,7 +69,7 @@ Under [https://github.com/organizations/promptLM/settings/secrets/actions](https
 |---|---|---|---|
 | `HCLOUD_TOKEN` | Hetzner Cloud console → Security → API Tokens (Read & Write) | All repos | Reusable workflow, bake, sweep |
 | `RUNNER_PAT` | GitHub → fine-grained PAT, "Administration: Read and write" on the target repos | All repos | Reusable workflow |
-| `GH_ORG_VAR_TOKEN` | GitHub → fine-grained PAT, "Organization variables: Read and write" on promptLM | Only `promptLM/.github` (Selected repositories) | Bake (to publish snapshot ID) |
+| `GH_ORG_VAR_TOKEN` | GitHub → fine-grained PAT. Resource owner: **promptLM** org. Under **Organization permissions** → **Variables** → **Read and write**. (No repository permissions needed.) | Only `promptLM/.github` (Selected repositories) | Bake (to publish snapshot ID) |
 
 ### Org-level variable
 
