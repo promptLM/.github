@@ -161,7 +161,7 @@ Switch back to CPX or pin to multi-arch image variants.
 - The reusable workflow does not yet expose `pre_runner_script` as an input
   — add via a small PR if a project needs per-call setup. Most projects
   don't.
-- Single-region (fra1) by default. Multi-region failover is not implemented.
+- Single-region (fsn1) by default. Multi-region failover is not implemented.
   Falkenstein has good uptime; the orphan sweep is the only critical
   scheduled work and it's idempotent.
 

@@ -57,7 +57,7 @@ jobs:
           hcloud server create \
             --name "$SERVER_NAME" \
             --type "$SERVER_TYPE" \
-            --location fra1 \
+            --location fsn1 \
             --image ubuntu-24.04 \
             --ssh-key "$SSH_KEY_NAME" \
             --label role=snapshot-bake

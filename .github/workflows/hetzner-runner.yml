@@ -42,10 +42,10 @@ on:
         type: string
         default: cpx31
       location:
-        description: "Hetzner Cloud region (fra1, nbg1, hel1, ash, hil, sin)."
+        description: "Hetzner Cloud region (fsn1, nbg1, hel1, ash, hil, sin)."
         required: false
         type: string
-        default: fra1
+        default: fsn1
       timeout-minutes:
         description: "Wall-clock timeout for the acceptance job."
         required: false
