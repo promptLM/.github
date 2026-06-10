@@ -66,13 +66,18 @@ jobs:
         run: |
           IP=$(hcloud server ip "$SERVER_NAME")
           echo "SERVER_IP=$IP" >> $GITHUB_ENV
+          # 30 attempts × 10s = 5 min max. cloud-init normally finishes well
+          # under that; if it doesn't, fail loudly instead of falling through
+          # into "Provision baseline" with a broken connection.
           for i in $(seq 1 30); do
             if ssh -i /tmp/bake_key -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@$IP 'echo ok' 2>/dev/null; then
-              echo "SSH up"
-              break
+              echo "SSH up after ${i} attempt(s)"
+              exit 0
             fi
             sleep 10
           done
+          echo "::error::SSH never came up on $IP after 5 minutes"
+          exit 1
 
       - name: Provision baseline
         run: |
@@ -147,17 +152,44 @@ jobs:
       - name: Update org variable HETZNER_RUNNER_SNAPSHOT_ID
         env:
           GH_TOKEN: ${{ secrets.GH_ORG_VAR_TOKEN }}
+          VAR_NAME: HETZNER_RUNNER_SNAPSHOT_ID
         run: |
-          gh api -X PATCH \
-            "orgs/${ORG}/actions/variables/HETZNER_RUNNER_SNAPSHOT_ID" \
-            -f "name=HETZNER_RUNNER_SNAPSHOT_ID" \
-            -f "value=${SNAPSHOT_ID}" \
-            -f "visibility=all" \
-          || gh api -X POST \
-            "orgs/${ORG}/actions/variables" \
-            -f "name=HETZNER_RUNNER_SNAPSHOT_ID" \
-            -f "value=${SNAPSHOT_ID}" \
-            -f "visibility=all"
+          set -euo pipefail
+
+          # Probe for existence first. The old `PATCH || POST` swallowed any
+          # non-2xx response from PATCH (e.g. 403 token-permission errors) and
+          # then immediately tried POST, producing two stacked errors with no
+          # signal about which one was real. Branch explicitly on 404 vs 200,
+          # surface anything else.
+          http_status=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            --include \
+            "orgs/${ORG}/actions/variables/${VAR_NAME}" 2>/dev/null \
+            | awk 'NR==1{print $2; exit}' || true)
+
+          case "${http_status}" in
+            200)
+              echo "Variable ${VAR_NAME} exists — updating via PATCH"
+              gh api -X PATCH \
+                "orgs/${ORG}/actions/variables/${VAR_NAME}" \
+                -f "name=${VAR_NAME}" \
+                -f "value=${SNAPSHOT_ID}" \
+                -f "visibility=all"
+              ;;
+            404)
+              echo "Variable ${VAR_NAME} does not exist — creating via POST"
+              gh api -X POST \
+                "orgs/${ORG}/actions/variables" \
+                -f "name=${VAR_NAME}" \
+                -f "value=${SNAPSHOT_ID}" \
+                -f "visibility=all"
+              ;;
+            *)
+              echo "::error::Unexpected status ${http_status:-<none>} probing orgs/${ORG}/actions/variables/${VAR_NAME}."
+              echo "::error::Most likely cause: secrets.GH_ORG_VAR_TOKEN lacks Organization → Variables: Read and write, has expired, or was not approved by an org admin."
+              exit 1
+              ;;
+          esac
 
       - name: Prune old snapshots (keep last 3)
         run: |
