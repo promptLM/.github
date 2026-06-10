@@ -35,7 +35,7 @@ jobs:
     env:
       HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
       SERVER_NAME: snapshot-bake-${{ github.run_id }}
-      SERVER_TYPE: cpx21          # cheap; bigger doesn't help bake speed
+      SERVER_TYPE: cx22           # CPX line phased out in fsn1; CX22 = 2 vCPU / 4 GB / 40 GB / ~€4.49/mo cap, ample for the bake
       SSH_KEY_NAME: snapshot-bake
       ORG: promptLM
     steps:
