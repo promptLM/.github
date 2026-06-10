@@ -127,14 +127,22 @@ jobs:
 
       - name: Create snapshot
         run: |
-          OUT=$(hcloud server create-image \
-            --description "runner-baseline-$(date -u +%Y%m%d)" \
+          # Unique description so we can look the image up afterwards.
+          # `hcloud server create-image` does not support -o json, so we
+          # query the image by description instead of parsing stdout.
+          DESC="runner-baseline-${GITHUB_RUN_ID}-$(date -u +%Y%m%d%H%M%S)"
+          hcloud server create-image \
+            --description "$DESC" \
             --type snapshot \
-            "$SERVER_NAME" \
-            -o json)
-          ID=$(echo "$OUT" | jq -r '.image.id')
+            "$SERVER_NAME"
+          ID=$(hcloud image list -t snapshot -o json \
+            | jq -r --arg d "$DESC" '.[] | select(.description==$d) | .id')
+          if [ -z "$ID" ]; then
+            echo "Failed to locate snapshot with description $DESC"
+            exit 1
+          fi
           echo "SNAPSHOT_ID=$ID" >> $GITHUB_ENV
-          echo "Snapshot created: $ID"
+          echo "Snapshot created: $ID ($DESC)"
 
       - name: Update org variable HETZNER_RUNNER_SNAPSHOT_ID
         env:
