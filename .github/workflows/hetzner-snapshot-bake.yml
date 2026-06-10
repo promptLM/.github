@@ -35,7 +35,7 @@ jobs:
     env:
       HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
       SERVER_NAME: snapshot-bake-${{ github.run_id }}
-      SERVER_TYPE: cpx21          # cheap; bigger doesn't help bake speed
+      SERVER_TYPE: cx33           # cpx21 retired in fsn1; cx33 matches runner default
       SSH_KEY_NAME: snapshot-bake
       ORG: promptLM
     steps:
