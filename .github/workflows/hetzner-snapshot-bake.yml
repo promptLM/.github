@@ -39,6 +39,30 @@ jobs:
       SSH_KEY_NAME: snapshot-bake
       ORG: promptLM
     steps:
+      - name: Preflight — verify GH_ORG_VAR_TOKEN can read org variables
+        # Fail fast (~2s) instead of after a 15-min bake. The actual write
+        # later uses the same Variables permission as this read probe, so
+        # if this passes the final PATCH/POST should too.
+        env:
+          GH_TOKEN: ${{ secrets.GH_ORG_VAR_TOKEN }}
+        run: |
+          set -uo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::Secret GH_ORG_VAR_TOKEN is unset on this repository."
+            echo "::error::Set it under https://github.com/organizations/${ORG}/settings/secrets/actions"
+            echo "::error::with visibility = Selected repositories = promptLM/.github."
+            exit 1
+          fi
+          if ! gh api "orgs/${ORG}/actions/variables" > /dev/null 2>&1; then
+            echo "::error::GH_ORG_VAR_TOKEN exists but cannot access org variables on ${ORG}."
+            echo "::error::Required: fine-grained PAT, Resource owner = ${ORG} (NOT your personal account),"
+            echo "::error::Organization permissions → Variables → Read and write."
+            echo "::error::If ${ORG} has SAML SSO, the token must also be SSO-authorized after creation."
+            echo "::error::Alternatively, a classic PAT with admin:org scope works."
+            exit 1
+          fi
+          echo "✓ GH_ORG_VAR_TOKEN has org-variable access on ${ORG}"
+
       - name: Install hcloud CLI
         run: |
           curl -fsSL "https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz" \
