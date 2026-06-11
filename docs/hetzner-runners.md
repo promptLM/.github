@@ -116,8 +116,8 @@ because Hetzner repriced the new generation in April 2026.
 Override per call:
 
 - **Lighter** workflows: `server-type: cx22` (2 vCPU / 4 GB) for builds/lint
-- **Heavier** workflows: use the CPX line below. The current-gen AMD CX line tops out at 4 vCPU / 8 GB (cx33) through this action; the larger `cx42`/`cx52` names still resolve to deprecated Intel SKUs and Hetzner rejects them (see Troubleshooting).
-- **Older CPX line** still works if a workflow needs more RAM or the bigger SSD: `cpx31` (4 vCPU / 8 GB / 160 GB), `cpx41` (8 vCPU / 16 GB / 240 GB)
+- **Heavier** workflows: `server-type: cx43` (8 vCPU / 16 GB / 160 GB) or `cx53` (16 vCPU / 32 GB / 320 GB). These are the current-gen CX SKUs that replaced `cx42`/`cx52` after Hetzner's 2026 rename — the old `2`-suffix names alias to deprecated Intel SKUs and Hetzner rejects them (see Troubleshooting).
+- **Older CPX line** still works if a workflow needs the bigger SSD: `cpx31` (160 GB), `cpx41` (240 GB)
 - **ARM** workflows (~half the price but Docker images must be arm64-clean):
   `server-type: cax21` or `cax31`. Confluent Platform images (`cp-kafka`,
   etc.) are amd64-only and will NOT work on ARM; stick to CX for those.
@@ -160,11 +160,10 @@ and silently fall back to qemu emulation (slow + flaky) or fail outright.
 Switch back to CPX or pin to multi-arch image variants.
 
 **Provision fails with Hetzner 422 "server type 106 is deprecated" on `cx42`/`cx52`.**
-The CX line was repriced and renamed to the AMD EPYC generation in April 2026,
-but the `cx42`/`cx52` names still alias to the older Intel SKUs through the
-Cyclenerd action, and Hetzner now rejects those. Only `cx22`/`cx32`/`cx33` are
-reliable on the current-gen AMD CX line; for more cores or RAM use the CPX line
-(`cpx31`, `cpx41`).
+The CX line was renamed in 2026 — the `2`-suffix SKUs (`cx42`/`cx52`) alias to
+the older Intel generation and Hetzner now rejects them. Use the new `3`-suffix
+names instead: `cx43` (8 vCPU / 16 GB) and `cx53` (16 vCPU / 32 GB). The smaller
+end of the line (`cx22`, `cx32`, `cx33`) is still accepted.
 
 ## Roadmap / known limits
 

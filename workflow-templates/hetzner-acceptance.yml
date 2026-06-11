@@ -20,7 +20,7 @@ jobs:
       # The shell command to execute on the Hetzner runner.
       test-command: ./scripts/acceptance-tests.sh
       # Optional overrides — defaults are sensible for most projects.
-      # server-type: cx33     # whitelist: cx22/32/33, cpx11/21/31/41, cax21/31 (cx42/cx52 are deprecated Intel SKUs — use cpx41 for 8 vCPU / 16 GB)
+      # server-type: cx33     # whitelist: cx22/32/33/43/53, cpx11/21/31/41, cax21/31 (cx42/cx52 alias to deprecated Intel SKUs — use cx43 / cx53)
       # location: fsn1
       # timeout-minutes: 60
     secrets: inherit
