@@ -37,7 +37,7 @@ on:
         required: true
         type: string
       server-type:
-        description: "Hetzner Cloud server type. Whitelist: cx22/32/33/42/52, cpx11/21/31/41, cax21/31."
+        description: "Hetzner Cloud server type. Whitelist: cx22/32/33, cpx11/21/31/41, cax21/31. (cx42/cx52 alias to deprecated Intel SKUs and Hetzner rejects them — use cpx41 for 8 vCPU / 16 GB.)"
         required: false
         type: string
         default: cx33
