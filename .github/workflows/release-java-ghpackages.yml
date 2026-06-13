@@ -428,7 +428,7 @@ jobs:
       - name: Generate changelog
         if: steps.tag-check.outputs.has_tags == 'true'
         id: changelog
-        uses: mikepenz/release-changelog-builder-action@v5
+        uses: mikepenz/release-changelog-builder-action@v6
         with:
           configurationJson: |
             {
