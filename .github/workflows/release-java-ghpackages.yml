@@ -445,7 +445,7 @@ jobs:
 
       - name: Create GH Release (with changelog)
         if: steps.tag-check.outputs.has_tags == 'true'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ inputs.version }}
           name: v${{ inputs.version }}
@@ -456,7 +456,7 @@ jobs:
 
       - name: Create GH Release (initial)
         if: steps.tag-check.outputs.has_tags != 'true'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ inputs.version }}
           name: v${{ inputs.version }}
