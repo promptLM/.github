@@ -116,7 +116,7 @@ because Hetzner repriced the new generation in April 2026.
 Override per call:
 
 - **Lighter** workflows: `server-type: cx22` (2 vCPU / 4 GB) for builds/lint
-- **Heavier** workflows: `server-type: cx42` (8 vCPU / 16 GB) or `cx52` (16 vCPU / 32 GB)
+- **Heavier** workflows: `server-type: cx43` (8 vCPU / 16 GB / 160 GB) or `cx53` (16 vCPU / 32 GB / 320 GB). These are the current-gen CX SKUs that replaced `cx42`/`cx52` after Hetzner's 2026 rename — the old `2`-suffix names alias to deprecated Intel SKUs and Hetzner rejects them (see Troubleshooting).
 - **Older CPX line** still works if a workflow needs the bigger SSD: `cpx31` (160 GB), `cpx41` (240 GB)
 - **ARM** workflows (~half the price but Docker images must be arm64-clean):
   `server-type: cax21` or `cax31`. Confluent Platform images (`cp-kafka`,
@@ -158,6 +158,12 @@ has the right scope on the calling repo.
 **ARM (CAX) workflow fails Docker pulls.** Some Docker images are amd64-only
 and silently fall back to qemu emulation (slow + flaky) or fail outright.
 Switch back to CPX or pin to multi-arch image variants.
+
+**Provision fails with Hetzner 422 "server type 106 is deprecated" on `cx42`/`cx52`.**
+The CX line was renamed in 2026 — the `2`-suffix SKUs (`cx42`/`cx52`) alias to
+the older Intel generation and Hetzner now rejects them. Use the new `3`-suffix
+names instead: `cx43` (8 vCPU / 16 GB) and `cx53` (16 vCPU / 32 GB). The smaller
+end of the line (`cx22`, `cx32`, `cx33`) is still accepted.
 
 ## Roadmap / known limits
 
